@@ -1,0 +1,44 @@
+# Daily ingestion: fetch raw files to the landing volume, then load them into bronze.
+#
+# With no parameters it re-fetches the last few days (incremental). For a backfill:
+#   databricks bundle run ingest --params start_date=2025-03-01,end_date=2025-11-30
+resources:
+  jobs:
+    ingest:
+      name: ingest
+      tags:
+        project: databucs
+      performance_target: STANDARD # daily batch, no deadline
+      max_concurrent_runs: 1 # two runs writing the same landing files would race
+      parameters:
+        - name: start_date
+          default: ""
+        - name: end_date
+          default: ""
+      schedule:
+        # Morning after games, Eastern time. Paused for the off-season; unpause before
+        # opening day. (Development mode always pauses schedules.)
+        quartz_cron_expression: "0 0 9 * * ?"
+        timezone_id: America/New_York
+        pause_status: PAUSED
+      tasks:
+        - task_key: fetch_raw
+          environment_key: default
+          python_wheel_task:
+            package_name: databucs
+            entry_point: fetch-raw
+            parameters:
+              - --landing-path=/Volumes/${var.catalog}/${resources.schemas.bronze.name}/landing
+              - --start-date={{job.parameters.start_date}}
+              - --end-date={{job.parameters.end_date}}
+        - task_key: load_bronze
+          depends_on:
+            - task_key: fetch_raw
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.lakehouse.id}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4" # serverless environment; Python 3.12, matching local dev
+            dependencies:
+              - ../dist/*.whl

@@ -1,0 +1,15 @@
+# Lakeflow declarative pipeline for the medallion tables. Bronze tables load new landing
+# files incrementally with Auto Loader.
+resources:
+  pipelines:
+    lakehouse:
+      name: lakehouse
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.bronze.name}
+      serverless: true
+      continuous: false
+      configuration:
+        landing_path: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/landing
+      libraries:
+        - glob:
+            include: ../src/pipelines/lakehouse/**

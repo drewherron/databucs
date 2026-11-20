@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = "==3.12.*" # matches Databricks serverless
 dependencies = []
 
+[project.scripts]
+fetch-raw = "databucs.jobs.fetch_raw:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8",

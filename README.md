@@ -6,13 +6,17 @@ An end-to-end data and ML platform on Databricks that produces advance-scouting 
 
 ## Status
 - [x] Project setup: Asset Bundle (dev/prod), Unity Catalog schemas, CI
-- [ ] Statcast and MLB Stats API ingestion
+- [x] Statcast and MLB Stats API ingestion into bronze
+- [ ] Silver/gold data model
 
 ## Layout
 ```
-databricks.yml        # Asset Bundle config (dev/prod targets)
-resources/            # schemas, jobs (and later pipelines, serving, monitoring)
+databricks.yml        # Asset Bundle config (dev/prod targets, wheel build)
+resources/            # schemas, volume, jobs, pipeline
 src/databucs/
+  ingestion/          # Savant + MLB Stats API clients, landing-file writer
+  jobs/               # job entry points
+src/pipelines/        # Lakeflow declarative pipeline (SQL)
 tests/
 .github/workflows/    # CI: lint + unit tests
 ```
@@ -31,3 +35,27 @@ databricks bundle run smoke_test          # verify compute + schemas
 ```
 
 Dev and prod live in the same workspace. Development mode prefixes schemas per user (`dev_<user>_bronze`), while prod uses plain names (`bronze`), all in the `workspace` catalog. Deploy prod with `databricks bundle deploy -t prod`.
+
+## Ingestion
+The `ingest` job runs two tasks:
+
+1. **`fetch_raw`** (Python wheel) downloads raw data and writes it unchanged to the
+   `bronze.landing` volume:
+   - MLB Stats API schedule, one file per month, with probable pitchers and starting lineups
+   - Statcast pitch-level CSV from Baseball Savant, one file per day with a completed game
+     (regular season and postseason)
+   - MLB Stats API teams and players, one file per season
+2. **`load_bronze`** runs the `lakehouse` pipeline, where Auto Loader picks up new files into
+   `bronze.statcast_pitches` (all columns as strings) and `bronze.statsapi_responses`
+   (whole responses as `VARIANT`).
+
+Landing files are content-addressed (`statcast_2025-07-04_<sha256 prefix>.csv`), so re-running
+a window writes nothing new, and a corrected re-pull lands as a new file next to the old one.
+Days older than the lookback window that already have a file are skipped, so an interrupted
+backfill resumes where it stopped.
+
+```bash
+databricks bundle run ingest                                  # incremental: last 3 days
+databricks bundle run ingest --params start_date=2025-03-01,end_date=2025-11-30   # backfill
+uv run fetch-raw --landing-path ./landing --start-date 2025-07-01 --end-date 2025-07-03  # local
+```
