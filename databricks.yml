@@ -1,0 +1,28 @@
+# Databricks Asset Bundle for databucs.
+# Docs: https://docs.databricks.com/aws/en/dev-tools/bundles/
+#
+# The workspace host comes from the CLI profile (`databricks auth login`) or the
+# DATABRICKS_HOST environment variable, so it isn't hard-coded here.
+bundle:
+  name: databucs
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds all project schemas.
+    default: workspace # the default catalog in Databricks Free Edition
+
+targets:
+  # Development mode prefixes resources per user: job names get "[dev <user>] ",
+  # and schemas become dev_<user>_bronze, etc. Schedules are paused.
+  dev:
+    mode: development
+    default: true
+
+  # Production uses the plain names (bronze, silver, ...) in the same workspace.
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

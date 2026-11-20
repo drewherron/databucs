@@ -1,0 +1,20 @@
+# Unity Catalog schemas for the medallion layers and ML assets.
+# Note: `databricks bundle destroy` deletes these schemas (and their tables) for that target.
+resources:
+  schemas:
+    bronze:
+      catalog_name: ${var.catalog}
+      name: bronze
+      comment: Raw data as ingested (Statcast pulls, MLB Stats API JSON). Append-only.
+    silver:
+      catalog_name: ${var.catalog}
+      name: silver
+      comment: Cleaned, typed, deduplicated pitches and conformed entities.
+    gold:
+      catalog_name: ${var.catalog}
+      name: gold
+      comment: Star schema, run expectancy, and aggregates for analysis and reports.
+    ml:
+      catalog_name: ${var.catalog}
+      name: ml
+      comment: Feature tables, registered models, and model outputs.

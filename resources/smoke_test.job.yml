@@ -1,0 +1,23 @@
+# Smoke test: proves the bundle deploys, serverless compute runs our code,
+# and the target's schemas exist. Replace or remove once real jobs exist.
+resources:
+  jobs:
+    smoke_test:
+      name: smoke_test
+      tags:
+        project: databucs
+      performance_target: STANDARD # nothing waits on this; cheaper, slower start
+      tasks:
+        - task_key: check_setup
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/databucs/jobs/smoke_test.py
+            parameters:
+              - --catalog
+              - ${var.catalog}
+              - --schemas
+              - ${resources.schemas.bronze.name},${resources.schemas.silver.name},${resources.schemas.gold.name},${resources.schemas.ml.name}
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4" # serverless environment; Python 3.12, matching local dev
