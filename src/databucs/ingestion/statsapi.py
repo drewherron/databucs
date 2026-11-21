@@ -32,11 +32,23 @@ def players_url(season: int) -> str:
     return f"{BASE_URL}/sports/{MLB_SPORT_ID}/players?{urllib.parse.urlencode({'season': season})}"
 
 
+# Postponed (D) and cancelled (C) games are also marked abstractGameState "Final".
+NOT_PLAYED_CODES = {"D", "C"}
+
+
+def was_played(game: dict) -> bool:
+    status = game.get("status", {})
+    return (
+        status.get("abstractGameState") == "Final"
+        and status.get("codedGameState") not in NOT_PLAYED_CODES
+    )
+
+
 def completed_game_dates(schedule_json: bytes) -> list[dt.date]:
-    """Dates in a schedule response with at least one completed (Final) game."""
+    """Dates in a schedule response with at least one game that was actually played."""
     payload = json.loads(schedule_json)
     dates = []
     for day in payload.get("dates", []):
-        if any(g.get("status", {}).get("abstractGameState") == "Final" for g in day["games"]):
+        if any(was_played(g) for g in day["games"]):
             dates.append(dt.date.fromisoformat(day["date"]))
     return sorted(dates)
