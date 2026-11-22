@@ -66,3 +66,7 @@ uv run fetch-raw --landing-path ./landing --start-date 2025-07-01 --end-date 202
   When a day has been re-pulled, only the latest file for that date is kept. Rows with a
   missing key fail the update; invalid counts, outs, or missing players are flagged by
   pipeline expectations.
+- **`silver.games`**: one row per game from the schedule, with status, teams, score, venue,
+  and the announced probable starters. Postponed and resumed games appear in the schedule
+  more than once; the played appearance is kept. `official_date` is the date Statcast files
+  the game's pitches under, so it is the date to join on.

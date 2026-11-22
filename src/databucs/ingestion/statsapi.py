@@ -45,10 +45,16 @@ def was_played(game: dict) -> bool:
 
 
 def completed_game_dates(schedule_json: bytes) -> list[dt.date]:
-    """Dates in a schedule response with at least one game that was actually played."""
+    """Official dates of the games in a schedule response that were actually played.
+
+    A resumed game is listed on the day it was finished, but its official date (the one
+    Statcast files its pitches under) is the day it started.
+    """
     payload = json.loads(schedule_json)
-    dates = []
-    for day in payload.get("dates", []):
-        if any(was_played(g) for g in day["games"]):
-            dates.append(dt.date.fromisoformat(day["date"]))
+    dates = {
+        dt.date.fromisoformat(game.get("officialDate", day["date"]))
+        for day in payload.get("dates", [])
+        for game in day["games"]
+        if was_played(game)
+    }
     return sorted(dates)

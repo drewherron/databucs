@@ -90,6 +90,21 @@ def test_completed_game_dates_skips_postponed_and_cancelled_games():
     assert statsapi.completed_game_dates(body) == [D(2026, 10, 18)]
 
 
+def test_completed_game_dates_uses_official_date_for_resumed_games():
+    final = {"abstractGameState": "Final", "codedGameState": "F"}
+    body = json.dumps(
+        {
+            "dates": [
+                {
+                    "date": "2023-10-02",
+                    "games": [{"officialDate": "2023-09-28", "status": final}],
+                },
+            ]
+        }
+    ).encode()
+    assert statsapi.completed_game_dates(body) == [D(2023, 9, 28)]
+
+
 def test_schedule_url_includes_probables_and_lineups():
     query = urllib.parse.parse_qs(
         urllib.parse.urlparse(statsapi.schedule_url(D(2025, 3, 1), D(2025, 3, 31))).query
