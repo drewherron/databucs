@@ -70,3 +70,9 @@ uv run fetch-raw --landing-path ./landing --start-date 2025-07-01 --end-date 202
   and the announced probable starters. Postponed and resumed games appear in the schedule
   more than once; the played appearance is kept. `official_date` is the date Statcast files
   the game's pitches under, so it is the date to join on.
+- **`silver.lineups`**: starting lineups, one row per game, team, and batting-order spot.
+- **`silver.teams`**: one row per team and season (abbreviations and divisions can change).
+  Join pitches to teams through `games` team IDs, not abbreviations: Statcast relabels past
+  seasons with a team's current abbreviation (`ATH` for 2023), the Stats API doesn't (`OAK`).
+- **`silver.players`**: one row per player, with handedness, size, and debut date from the
+  latest season the player appears in.
