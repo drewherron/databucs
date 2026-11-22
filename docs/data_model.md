@@ -143,6 +143,12 @@ they measure different things.
   at about 0.84 overall.
 - The recommender scores options in the actual situation, so it uses `run_value`.
 
+## Feature tables
+
+Model features live in the `ml` schema as Feature Engineering tables (`batter_profile`,
+`pitcher_arsenal_features`, `game_state_features`), built from `fact_pitch` by the
+`features` job. See [features.md](features.md).
+
 ## Example
 
 Every slider a pitcher threw to left-handed hitters with two strikes, with its run value:

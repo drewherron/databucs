@@ -1,0 +1,56 @@
+# Feature tables for the models: build or update them from gold.fact_pitch, then check that
+# point-in-time lookups through Feature Engineering give a leak-free training set.
+#
+# The ingest job runs this after each load, for the same window. Run it on its own to
+# rebuild after changing a feature definition:
+#   databricks bundle run features --params full_rebuild=true
+resources:
+  jobs:
+    features:
+      name: features
+      tags:
+        project: databucs
+      performance_target: STANDARD
+      max_concurrent_runs: 1 # two runs merging into the same tables would race
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+      parameters:
+        - name: start_date
+          default: ""
+        - name: end_date
+          default: ""
+        - name: full_rebuild
+          default: "false"
+      tasks:
+        - task_key: build_features
+          environment_key: features
+          python_wheel_task:
+            package_name: databucs
+            entry_point: build-features
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver-schema=${resources.schemas.silver.name}
+              - --gold-schema=${resources.schemas.gold.name}
+              - --ml-schema=${resources.schemas.ml.name}
+              - --start-date={{job.parameters.start_date}}
+              - --end-date={{job.parameters.end_date}}
+              - --full-rebuild={{job.parameters.full_rebuild}}
+        - task_key: check_features
+          depends_on:
+            - task_key: build_features
+          environment_key: features
+          python_wheel_task:
+            package_name: databucs
+            entry_point: check-features
+            parameters:
+              - --catalog=${var.catalog}
+              - --gold-schema=${resources.schemas.gold.name}
+              - --ml-schema=${resources.schemas.ml.name}
+      environments:
+        - environment_key: features
+          spec:
+            environment_version: "4" # serverless environment; Python 3.12, matching local dev
+            dependencies:
+              - ../dist/*.whl
+              - databricks-feature-engineering==0.18.4

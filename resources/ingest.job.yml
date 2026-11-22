@@ -1,7 +1,8 @@
 # Daily ingestion: fetch raw files to the landing volume, run the lakehouse pipeline
 # (bronze loads the new files; silver and gold refresh from bronze), then check the data
-# quality results for the same window. A failed task, including a day with data quality
-# issues, fails the run and emails the deploying user.
+# quality results for the same window, and finally update the feature tables (the features
+# job). A failed task, including a day with data quality issues, fails the run and emails
+# the deploying user; features aren't updated from a load that failed its checks.
 #
 # With no parameters it re-fetches the last few days (incremental). For a backfill:
 #   databricks bundle run ingest --params start_date=2025-03-01,end_date=2025-11-30
@@ -54,6 +55,14 @@ resources:
               - --silver-schema=${resources.schemas.silver.name}
               - --start-date={{job.parameters.start_date}}
               - --end-date={{job.parameters.end_date}}
+        - task_key: update_features
+          depends_on:
+            - task_key: check_data_quality
+          run_job_task:
+            job_id: ${resources.jobs.features.id}
+            job_parameters:
+              start_date: "{{job.parameters.start_date}}"
+              end_date: "{{job.parameters.end_date}}"
       environments:
         - environment_key: default
           spec:
