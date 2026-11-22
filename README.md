@@ -7,7 +7,7 @@ An end-to-end data and ML platform on Databricks that produces advance-scouting 
 ## Status
 - [x] Project setup: Asset Bundle (dev/prod), Unity Catalog schemas, CI
 - [x] Statcast and MLB Stats API ingestion into bronze
-- [ ] Silver/gold data model
+- [x] Silver/gold data model ([docs/data_model.md](docs/data_model.md))
 
 ## Layout
 ```
@@ -16,7 +16,8 @@ resources/            # schemas, volume, jobs, pipeline
 src/databucs/
   ingestion/          # Savant + MLB Stats API clients, landing-file writer
   jobs/               # job entry points
-src/pipelines/        # Lakeflow declarative pipeline (SQL)
+src/pipelines/        # Lakeflow declarative pipeline (SQL): bronze, silver, gold
+docs/                 # data model
 tests/
 .github/workflows/    # CI: lint + unit tests
 ```
@@ -76,3 +77,12 @@ uv run fetch-raw --landing-path ./landing --start-date 2025-07-01 --end-date 202
   seasons with a team's current abbreviation (`ATH` for 2023), the Stats API doesn't (`OAK`).
 - **`silver.players`**: one row per player, with handedness, size, and debut date from the
   latest season the player appears in.
+
+## Gold tables
+- **`gold.fact_pitch`**: one row per pitch with names, teams, game state (count, outs,
+  runners, score, times through the order), pitch traits, outcome flags (`is_swing`,
+  `is_whiff`, `is_in_zone`, ...), and `run_value`.
+- **`gold.ref_run_expectancy`**: average runs to the end of the half-inning by season, outs,
+  runners, and count (the 0-0 rows are the standard RE24 table).
+
+See [docs/data_model.md](docs/data_model.md) for grains, keys, and design decisions.
