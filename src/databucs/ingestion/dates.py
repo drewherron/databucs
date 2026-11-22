@@ -9,6 +9,11 @@ import datetime as dt
 DEFAULT_LOOKBACK_DAYS = 3
 
 
+def optional_date(value: str) -> dt.date | None:
+    """Parse YYYY-MM-DD; an empty string (unset job parameter) means None."""
+    return dt.date.fromisoformat(value) if value else None
+
+
 def resolve_window(
     start: dt.date | None,
     end: dt.date | None,

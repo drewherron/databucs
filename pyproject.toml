@@ -8,6 +8,7 @@ dependencies = []
 
 [project.scripts]
 fetch-raw = "databucs.jobs.fetch_raw:main"
+check-data-quality = "databucs.jobs.check_data_quality:main"
 
 [dependency-groups]
 dev = [

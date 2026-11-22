@@ -21,7 +21,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from databucs.ingestion import savant, statsapi
-from databucs.ingestion.dates import DEFAULT_LOOKBACK_DAYS, resolve_window, split_by_month
+from databucs.ingestion.dates import (
+    DEFAULT_LOOKBACK_DAYS,
+    optional_date,
+    resolve_window,
+    split_by_month,
+)
 from databucs.ingestion.http import get_bytes
 from databucs.ingestion.landing import has_landed, land
 
@@ -35,11 +40,6 @@ class Outcome:
     skipped: bool = False  # already landed and outside the re-fetch window
     rows: int | None = None
     error: str | None = None
-
-
-def optional_date(value: str) -> dt.date | None:
-    """Parse YYYY-MM-DD; an empty string (unset job parameter) means None."""
-    return dt.date.fromisoformat(value) if value else None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
