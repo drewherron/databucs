@@ -45,9 +45,9 @@ The `ingest` job runs two tasks:
    - Statcast pitch-level CSV from Baseball Savant, one file per day with a completed game
      (regular season and postseason)
    - MLB Stats API teams and players, one file per season
-2. **`load_bronze`** runs the `lakehouse` pipeline, where Auto Loader picks up new files into
+2. **`run_lakehouse`** runs the `lakehouse` pipeline, where Auto Loader picks up new files into
    `bronze.statcast_pitches` (all columns as strings) and `bronze.statsapi_responses`
-   (whole responses as `VARIANT`).
+   (whole responses as `VARIANT`), and the silver tables refresh from bronze.
 
 Landing files are content-addressed (`statcast_2025-07-04_<sha256 prefix>.csv`), so re-running
 a window writes nothing new, and a corrected re-pull lands as a new file next to the old one.
@@ -59,3 +59,10 @@ databricks bundle run ingest                                  # incremental: las
 databricks bundle run ingest --params start_date=2025-03-01,end_date=2025-11-30   # backfill
 uv run fetch-raw --landing-path ./landing --start-date 2025-07-01 --end-date 2025-07-03  # local
 ```
+
+## Silver tables
+- **`silver.pitches`**: one row per pitch, keyed on `(game_pk, at_bat_number, pitch_number)`,
+  with typed columns and clearer names (`pitcher_id`, `outs`, `times_through_order`, ...).
+  When a day has been re-pulled, only the latest file for that date is kept. Rows with a
+  missing key fail the update; invalid counts, outs, or missing players are flagged by
+  pipeline expectations.

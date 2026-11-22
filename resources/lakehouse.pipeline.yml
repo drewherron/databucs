@@ -1,5 +1,6 @@
 # Lakeflow declarative pipeline for the medallion tables. Bronze tables load new landing
-# files incrementally with Auto Loader.
+# files incrementally with Auto Loader. Tables are published to the bronze schema by default;
+# silver tables use fully qualified names built from the configuration below.
 resources:
   pipelines:
     lakehouse:
@@ -10,6 +11,8 @@ resources:
       continuous: false
       configuration:
         landing_path: /Volumes/${var.catalog}/${resources.schemas.bronze.name}/landing
+        catalog: ${var.catalog}
+        silver_schema: ${resources.schemas.silver.name}
       libraries:
         - glob:
             include: ../src/pipelines/lakehouse/**
