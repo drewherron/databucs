@@ -5,15 +5,18 @@
    given. The lineup is projected from the opponent's recent starts unless --lineup lists
    batter ids; the pitchers are everyone who pitched for the team recently plus the
    probable starters, unless --pitchers lists them.
-2. Build one row per pitcher x batter x scenario x pitch type x zone x point (nine points
-   per zone; see databucs.recommender.options) and score it with the five @champion
-   outcome models.
-3. Expected run value per point, from the models' result probabilities and the run values
-   of the training seasons (positive is good for the batter, so lower is better for the
-   pitcher). Each option gets the average over its nine points and their range.
-4. Compare with the pitcher's usual choice: his pitch type x zone mix in this count
-   (or count group, if he has few pitches in it) against same- or opposite-side hitters,
-   weighted over the options scored.
+2. Score each pitcher x batter x scenario x pitch type at every landing point of a regular
+   grid with the five @champion outcome models (databucs.recommender.options), and turn
+   that into expected run value with the run values of the training seasons (positive is
+   good for the batter, so lower is better for the pitcher).
+3. Options: aiming at a zone. Each of a zone's nine aim points is worth the average over
+   where an aimed pitch lands (a normal miss of --miss-sd-ft); the option gets the average
+   of its aim points and their range.
+4. The pitcher's usual choice, valued the same way but at where his pitches really landed:
+   his mix of pitch type x landing point in this count (or count group, if he has few
+   pitches in it) against same- or opposite-side hitters. Both sides of the comparison
+   include misses. Each option also shows how often he throws that pitch type into that
+   zone (usual_share), as context.
 5. Write ml.pitch_option_scores, replacing the rows for this team, opponent and series
    start.
 """
@@ -55,6 +58,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=parse_seasons,
         default=[2023, 2024, 2025],
         help="Seasons to average run values over (the models' training seasons).",
+    )
+    parser.add_argument(
+        "--miss-sd-ft",
+        type=float,
+        default=options.MISS_SD_FT,
+        help="How far pitches miss where they're aimed: a normal spread, in feet.",
     )
     return parser.parse_args(argv)
 
@@ -121,80 +130,102 @@ def main(argv: list[str] | None = None) -> None:
     ).createOrReplaceTempView("target_pitchers")
     print(f"Lineup ({lineup_source}): {lineup.count()} batters; pitchers: {len(pitcher_ids)}")
 
+    batters = spark.sql(inputs.batters_sql(fact_pitch, players_table, target))
+    batters.createOrReplaceTempView("target_batters")
     spark.createDataFrame([asdict(s) for s in options.SCENARIOS]).withColumnRenamed(
         "name", "scenario"
     ).drop("description").createOrReplaceTempView("scenarios")
-    spark.createDataFrame([asdict(p) for p in options.zone_points()]).createOrReplaceTempView(
-        "zone_points"
+    spark.createDataFrame([asdict(p) for p in options.landing_points()]).createOrReplaceTempView(
+        "landing_points"
     )
+    # Where pitches aimed at each aim point land, per batter (the miss is in feet, the grid
+    # in fractions of the batter's zone)
+    spark.createDataFrame(
+        [
+            (b.batter_id, *row)
+            for b in batters.collect()
+            for row in options.aim_weights(b.sz_top - b.sz_bot, args.miss_sd_ft)
+        ],
+        "batter_id int, zone int, point int, land int, weight double",
+    ).createOrReplaceTempView("aim_weights")
 
-    # 2. Request rows, scored by each outcome model
+    # 2. Every landing point, scored by each outcome model, as expected run value
     requests = spark.sql(inputs.request_rows_sql(fact_pitch, players_table, arsenal_table, target))
     requests.createOrReplaceTempView("requests")
     print(f"Scoring {requests.count()} hypothetical pitches")
-    score_outcomes(fe, requests, ml, inputs.POINT_KEY).createOrReplaceTempView("scored")
+    score_outcomes(fe, requests, ml, inputs.LANDING_KEY).createOrReplaceTempView("scored")
 
-    # 3. Expected run value per point, then per option
     register_run_values(spark, fact_pitch, args.run_value_seasons, "run_values_wide")
     probabilities, expected = expected_value_sql()
-    point_key = ", ".join(inputs.POINT_KEY)
+    landing_key = ", ".join(inputs.LANDING_KEY)
+    p_columns = ", ".join(f"p_{r}" for r in RESULTS)
     spark.sql(
         f"""
         WITH probabilities AS (
           SELECT r.*, {probabilities}
           FROM requests r
-          JOIN scored USING ({point_key})
+          JOIN scored USING ({landing_key})
         )
-        SELECT p.*, {expected} AS expected_run_value
+        SELECT {landing_key}, {p_columns}, {expected} AS expected_run_value
         FROM probabilities p
         JOIN run_values_wide v USING (balls, strikes, outs, base_state)
         """
-    ).createOrReplaceTempView("points")
+    ).createOrReplaceTempView("landings")
 
+    # 3. Options: aim points valued over where they land, then zones over their aim points
+    situation = ", ".join(inputs.SITUATION_KEY)
     option_key = ", ".join(inputs.OPTION_KEY)
+    weighted = ", ".join(f"sum(w.weight * l.p_{r}) AS p_{r}" for r in RESULTS)
     mean_probabilities = ", ".join(f"avg(p_{r}) AS p_{r}" for r in RESULTS)
     spark.sql(
         f"""
+        WITH aims AS (
+          SELECT l.pitcher_id, l.batter_id, l.scenario, l.pitch_type, w.zone, w.point,
+            sum(w.weight * l.expected_run_value) AS expected_run_value,
+            {weighted}
+          FROM landings l
+          JOIN aim_weights w ON w.batter_id = l.batter_id AND w.land = l.land
+          GROUP BY ALL
+        )
         SELECT {option_key},
-          first(pitcher_name) AS pitcher_name, first(is_probable_starter) AS is_probable_starter,
-          first(batter_name) AS batter_name, first(lineup_spot) AS lineup_spot,
-          first(pitcher_throws) AS pitcher_throws, first(batter_stands) AS batter_stands,
-          first(balls) AS balls, first(strikes) AS strikes,
-          first(pitch_usage_rate) AS pitch_usage_rate,
-          first(pitcher_pitches_thrown) AS pitcher_pitches_thrown,
           avg(expected_run_value) AS expected_run_value,
           min(expected_run_value) AS expected_run_value_low,
           max(expected_run_value) AS expected_run_value_high,
           {mean_probabilities}
-        FROM points
-        GROUP BY {option_key}
+        FROM aims
+        GROUP BY ALL
         """
     ).createOrReplaceTempView("option_values")
+    spark.sql(
+        f"""
+        SELECT DISTINCT {situation}, pitch_type, pitcher_name, is_probable_starter,
+          batter_name, lineup_spot, pitcher_throws, batter_stands, balls, strikes,
+          pitch_usage_rate, pitcher_pitches_thrown
+        FROM requests
+        """
+    ).createOrReplaceTempView("option_info")
 
-    # 4. The pitcher's usual choice, over the options scored
-    spark.sql(inputs.usage_sql(fact_pitch, target)).createOrReplaceTempView("usage")
-    situation = "pitcher_id, batter_id, scenario"
+    # 4. The pitcher's usual choice: his real landing spots, valued like the options
+    spark.sql(inputs.usage_sql(fact_pitch, target, "land")).createOrReplaceTempView("usage_land")
+    spark.sql(inputs.usage_sql(fact_pitch, target, "zone")).createOrReplaceTempView("usage_zone")
+    same_usage = """
+            u.pitcher_id = i.pitcher_id AND u.balls = i.balls AND u.strikes = i.strikes
+            AND u.same_side = (i.pitcher_throws = i.batter_stands)
+            AND u.pitch_type = i.pitch_type"""
     result = spark.sql(
         f"""
-        WITH options AS (
-          SELECT o.*, coalesce(u.usage, 0) AS usual_share, u.usual_by_exact_count
-          FROM option_values o
-          LEFT JOIN usage u
-            ON u.pitcher_id = o.pitcher_id
-            AND u.balls = o.balls
-            AND u.strikes = o.strikes
-            AND u.same_side = (o.pitcher_throws = o.batter_stands)
-            AND u.pitch_type = o.pitch_type
-            AND u.zone = o.zone
-        ),
-        usual AS (
-          SELECT {situation},
-            -- NULL when the pitcher has no history in this count group
-            sum(usual_share * expected_run_value) / nullif(sum(usual_share), 0)
+        WITH usual AS (
+          SELECT i.pitcher_id, i.batter_id, i.scenario,
+            -- NULL when the pitcher has no history in this count
+            sum(u.usage * l.expected_run_value) / nullif(sum(u.usage), 0)
               AS usual_expected_run_value,
-            sum(usual_share) AS usual_share_covered,
-            bool_or(usual_by_exact_count) AS usual_by_exact_count
-          FROM options
+            sum(u.usage) AS usual_share_covered,
+            bool_or(u.usual_by_exact_count) AS usual_by_exact_count
+          FROM option_info i
+          JOIN usage_land u ON {same_usage}
+          JOIN landings l
+            ON l.pitcher_id = i.pitcher_id AND l.batter_id = i.batter_id
+            AND l.scenario = i.scenario AND l.pitch_type = i.pitch_type AND l.land = u.land
           GROUP BY ALL
         )
         SELECT
@@ -203,15 +234,26 @@ def main(argv: list[str] | None = None) -> None:
           DATE'{target.series_start}' AS series_start,
           '{target.mode}' AS target_mode,
           '{lineup_source}' AS lineup_source,
-          o.* EXCEPT (balls, strikes, usual_by_exact_count),
+          {args.miss_sd_ft} AS miss_sd_ft,
+          o.*,
+          i.* EXCEPT ({situation}, pitch_type, balls, strikes),
+          coalesce(u.usage, 0) AS usual_share,
           usual.usual_expected_run_value,
           usual.usual_share_covered,
           usual.usual_by_exact_count,
           o.expected_run_value - usual.usual_expected_run_value AS vs_usual,
-          rank() OVER (PARTITION BY {situation} ORDER BY o.expected_run_value) AS option_rank,
+          rank() OVER (
+            PARTITION BY o.pitcher_id, o.batter_id, o.scenario ORDER BY o.expected_run_value
+          ) AS option_rank,
           current_timestamp() AS scored_at
-        FROM options o
-        JOIN usual USING ({situation})
+        FROM option_values o
+        JOIN option_info i
+          ON i.pitcher_id = o.pitcher_id AND i.batter_id = o.batter_id
+          AND i.scenario = o.scenario AND i.pitch_type = o.pitch_type
+        LEFT JOIN usage_zone u ON {same_usage} AND u.zone = o.zone
+        LEFT JOIN usual
+          ON usual.pitcher_id = o.pitcher_id AND usual.batter_id = o.batter_id
+          AND usual.scenario = o.scenario
         """
     )
 
@@ -249,6 +291,7 @@ def main(argv: list[str] | None = None) -> None:
         F.round("expected_run_value_low", 3).alias("low"),
         F.round("expected_run_value_high", 3).alias("high"),
         F.round("vs_usual", 3).alias("vs_usual"),
+        F.round("usual_share", 3).alias("his_share"),
     ).show(30, truncate=False)
 
 

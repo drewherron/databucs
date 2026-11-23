@@ -124,3 +124,69 @@ def test_parse_args_with_unset_job_parameters():
          "--lineup=1,2,3"]
     )  # fmt: skip
     assert custom.lineup == [1, 2, 3]
+
+
+def test_statcast_zone_matches_the_aim_points_zones():
+    for p in options.zone_points():
+        assert options.statcast_zone(p.plate_x, p.height) == p.zone
+
+
+def test_landing_grid_covers_every_zone_and_indexes_in_order():
+    points = options.landing_points()
+    assert [p.land for p in points] == list(range(len(points)))
+    assert {p.zone for p in points} == set(options.ZONES)
+
+
+def test_landing_index_sql_picks_the_nearest_point():
+    """Evaluate the SQL expression as Python, for a few locations."""
+    sql = options.landing_index_sql("x", "h")
+    python = sql.replace("least", "min").replace("greatest", "max")
+    points = options.landing_points()
+    for x, h in [(0.0, 0.5), (-0.9, 1.1), (5.0, -3.0), (0.61, 0.07)]:
+        land = eval(python, {"x": x, "h": h, "min": min, "max": max, "int": int, "round": round})
+        nearest = min(points, key=lambda p: (abs(p.plate_x - x), abs(p.height - h)))
+        clipped = min(
+            points,
+            key=lambda p: (
+                abs(p.plate_x - max(min(x, 1.5), -1.5)),
+                abs(p.height - max(min(h, 1.5), -0.5)),
+            ),
+        )
+        assert land in (nearest.land, clipped.land)
+
+
+def test_aim_weights_sum_to_one_and_center_on_the_aim():
+    weights = options.aim_weights(zone_height_ft=1.9, sd_ft=0.65)
+    landing = {p.land: p for p in options.landing_points()}
+    by_aim: dict = {}
+    for zone, point, land, w in weights:
+        by_aim.setdefault((zone, point), []).append((land, w))
+    assert len(by_aim) == 9 * len(options.ZONES)
+    for cells in by_aim.values():
+        assert sum(w for _, w in cells) == pytest.approx(1)
+    # Aimed at the middle: about 68% land in the zone (see MISS_SD_FT)
+    middle = by_aim[(5, 4)]
+    in_zone = sum(w for land, w in middle if landing[land].zone in options.IN_ZONE)
+    assert 0.6 < in_zone < 0.75
+    # A pitcher who never misses lands at the aim point (to within the grid's spacing)
+    aims = {(a.zone, a.point): a for a in options.zone_points()}
+    sharp: dict = {}
+    for zone, point, land, w in options.aim_weights(zone_height_ft=1.9, sd_ft=0.001):
+        sharp.setdefault((zone, point), []).append((landing[land], w))
+    for key, cells in sharp.items():
+        x = sum(p.plate_x * w for p, w in cells)
+        h = sum(p.height * w for p, w in cells)
+        assert abs(x - aims[key].plate_x) <= options.LANDING_DX / 2 + 1e-9
+        assert abs(h - aims[key].height) <= options.LANDING_DH / 2 + 1e-9
+
+
+def test_wider_misses_spread_further():
+    def in_zone_share(sd):
+        landing = {p.land: p for p in options.landing_points()}
+        return sum(
+            w
+            for zone, point, land, w in options.aim_weights(1.9, sd)
+            if (zone, point) == (5, 4) and landing[land].zone in options.IN_ZONE
+        )
+
+    assert in_zone_share(0.4) > in_zone_share(0.65) > in_zone_share(0.9)

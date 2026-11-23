@@ -15,24 +15,41 @@ Zones 1-9 split the strike zone into thirds across the plate and thirds of the b
 own zone height. Zones 11-14 are everything outside, by quadrant, so each is an L shape
 around a corner of the zone.
 
-A pitcher can't hit an exact spot, so each zone is scored at nine points and the
-recommender reports their average and range:
-- zones 1-9: a 3 x 3 grid at 1/6, 1/2 and 5/6 of the cell
-- zones 11-14: three points beside the zone, three above or below it and three off the
-  corner, a pitch's width or two outside. Real pitches in these zones land a median of
-  about 0.1 ft outside the plate and 0.1-0.2 zone heights above or below it.
+Aim and miss. A pitcher aims somewhere and the pitch lands around it, so:
+- The models score each pitch type on a regular grid of LANDING spots (landing_points).
+- Each zone has nine AIM points (zone_points):
+  - zones 1-9: a 3 x 3 grid at 1/6, 1/2 and 5/6 of the cell
+  - zones 11-14: three points beside the zone, three above or below it and three off the
+    corner, a pitch's width or two outside. Real pitches in these zones land a median of
+    about 0.1 ft outside the plate and 0.1-0.2 zone heights above or below it.
+- An aim point's value is the average over landing spots, weighted by a normal miss
+  around it with MISS_SD_FT in each direction (aim_weights). The outermost landing spots
+  take the tails, so a wild pitch counts like the nearest spot on the grid's edge, which is
+  an obvious ball.
+- A zone's value is the average over its nine aim points; their range shows how much it
+  matters where in the zone the pitcher aims.
 
 Heights are fractions of the batter's zone (0 = bottom, 1 = top), so the points scale to
-each batter.
+each batter; the miss is in feet, so it is a bigger fraction of a short batter's zone.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 PLATE_HALF_WIDTH = 0.83  # ft, Statcast's zone edge: half the plate plus a ball's radius
 OUTSIDE_FT = 0.3  # how far outside the plate the "beside" chase points sit
 OUTSIDE_HEIGHT = 0.15  # how far above or below the zone the "above/below" points sit
+
+# A normal miss of this size, in feet, in each direction. A rough league-wide value: aimed
+# at the middle of the zone, 68% of pitches would land in it; on 3-1, when pitchers most
+# want a strike, 63% of real pitches do.
+MISS_SD_FT = 0.65
+
+# Landing grid: plate_x from -1.5 to 1.5 ft and height from -0.5 to 1.5 zone heights
+LANDING_X0, LANDING_DX, LANDING_NX = -1.5, 0.25, 13
+LANDING_H0, LANDING_DH, LANDING_NH = -0.5, 0.125, 17
 
 IN_ZONE = range(1, 10)
 CHASE_ZONES = {11: (-1, "high"), 12: (1, "high"), 13: (-1, "low"), 14: (1, "low")}
@@ -82,8 +99,81 @@ def _chase_points(zone: int) -> list[ZonePoint]:
 
 
 def zone_points() -> list[ZonePoint]:
-    """Nine scoring points for every zone in ZONES."""
+    """Nine aim points for every zone in ZONES."""
     return [p for z in ZONES for p in (_in_zone_points(z) if z in IN_ZONE else _chase_points(z))]
+
+
+def statcast_zone(plate_x: float, height: float) -> int:
+    """The Statcast zone a location falls in (edges count as in the zone)."""
+    if abs(plate_x) <= PLATE_HALF_WIDTH and 0 <= height <= 1:
+        third = 2 * PLATE_HALF_WIDTH / 3
+        column = min(int((plate_x + PLATE_HALF_WIDTH) // third), 2)
+        row = min(int((1 - height) * 3), 2)
+        return 1 + 3 * row + column
+    high, left = height > 0.5, plate_x < 0
+    return {(True, True): 11, (True, False): 12, (False, True): 13, (False, False): 14}[
+        (high, left)
+    ]
+
+
+@dataclass(frozen=True)
+class LandingPoint:
+    land: int  # index into the grid: column * LANDING_NH + row
+    plate_x: float
+    height: float
+    zone: int
+
+
+def landing_points() -> list[LandingPoint]:
+    points = []
+    for i in range(LANDING_NX):
+        for j in range(LANDING_NH):
+            x, h = LANDING_X0 + i * LANDING_DX, LANDING_H0 + j * LANDING_DH
+            points.append(LandingPoint(i * LANDING_NH + j, x, h, statcast_zone(x, h)))
+    return points
+
+
+def landing_index_sql(plate_x: str, height: str) -> str:
+    """SQL for the nearest landing point's index (clipped to the grid)."""
+
+    def cell(expr: str, start: float, step: float, n: int) -> str:
+        return f"least(greatest(int(round(({expr} - {start}) / {step})), 0), {n - 1})"
+
+    column = cell(plate_x, LANDING_X0, LANDING_DX, LANDING_NX)
+    row = cell(height, LANDING_H0, LANDING_DH, LANDING_NH)
+    return f"({column} * {LANDING_NH} + {row})"
+
+
+def _cell_masses(target: float, sd: float, start: float, step: float, n: int) -> list[float]:
+    """Probability a normal(target, sd) lands nearest each of n grid values; the end cells
+    take the tails."""
+
+    def cdf(v: float) -> float:
+        return 0.5 * (1 + math.erf((v - target) / (sd * math.sqrt(2))))
+
+    edges = [-math.inf, *[start + (k + 0.5) * step for k in range(n - 1)], math.inf]
+    return [cdf(edges[k + 1]) - cdf(edges[k]) for k in range(n)]
+
+
+def aim_weights(
+    zone_height_ft: float, sd_ft: float = MISS_SD_FT, min_weight: float = 1e-4
+) -> list[tuple[int, int, int, float]]:
+    """(zone, point, land, weight) for every aim point: where a pitch aimed there lands, for
+    a batter whose zone is zone_height_ft tall. Tiny weights are dropped and the rest
+    rescaled to sum to 1."""
+    rows = []
+    for aim in zone_points():
+        xs = _cell_masses(aim.plate_x, sd_ft, LANDING_X0, LANDING_DX, LANDING_NX)
+        hs = _cell_masses(aim.height, sd_ft / zone_height_ft, LANDING_H0, LANDING_DH, LANDING_NH)
+        cells = [
+            (i * LANDING_NH + j, wx * wh)
+            for i, wx in enumerate(xs)
+            for j, wh in enumerate(hs)
+            if wx * wh >= min_weight
+        ]
+        total = sum(w for _, w in cells)
+        rows += [(aim.zone, aim.point, land, w / total) for land, w in cells]
+    return rows
 
 
 @dataclass(frozen=True)

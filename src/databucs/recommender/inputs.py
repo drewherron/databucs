@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from databucs.features import batter_profile
 from databucs.models import features
 from databucs.models.outcomes import COMPETITIVE
+from databucs.recommender import options
 
 PIRATES_TEAM_ID = 134
 
@@ -32,7 +33,7 @@ HISTORY_DAYS = 365  # window for strike zones, handedness and pitch usage
 MIN_COUNT_PITCHES = 40
 
 # The hypothetical pitch's own columns (features.PITCH_COLUMNS), from the pitcher's
-# arsenal row (a), the matchup (m) and the zone point (z). The arsenal's horizontal values
+# arsenal row (a), the matchup (m) and the landing point (z). The arsenal's horizontal values
 # are already arm side positive, like the model's.
 HYPOTHETICAL_PITCH = {
     "pitch_type": "a.pitch_type",
@@ -54,8 +55,10 @@ HYPOTHETICAL_PITCH = {
     "pitch_arm_angle": "a.arm_angle",
 }
 
-OPTION_KEY = ["pitcher_id", "batter_id", "scenario", "pitch_type", "zone"]
-POINT_KEY = [*OPTION_KEY, "point"]
+SITUATION_KEY = ["pitcher_id", "batter_id", "scenario"]
+OPTION_KEY = [*SITUATION_KEY, "pitch_type", "zone"]
+# The rows the models score: each pitch type at each landing point
+LANDING_KEY = [*SITUATION_KEY, "pitch_type", "land"]
 
 
 @dataclass(frozen=True)
@@ -211,30 +214,35 @@ def _history(target: Target) -> str:
     return f"game_date >= date_sub({start}, {HISTORY_DAYS}) AND game_date < {start}"
 
 
+def batters_sql(fact_pitch: str, players_table: str, target: Target) -> str:
+    """The lineup with names and strike zones (the batter's median over the trailing
+    HISTORY_DAYS, else the Stats API's). Reads the temp view target_lineup."""
+    return f"""
+SELECT l.batter_id, l.lineup_spot, pl.full_name AS batter_name, pl.bats,
+  coalesce(sz.sz_top, pl.strike_zone_top) AS sz_top,
+  coalesce(sz.sz_bot, pl.strike_zone_bottom) AS sz_bot
+FROM target_lineup l
+LEFT JOIN {players_table} pl ON pl.player_id = l.batter_id
+LEFT JOIN (
+  SELECT batter_id, median(sz_top) AS sz_top, median(sz_bot) AS sz_bot
+  FROM {fact_pitch}
+  WHERE {_history(target)}
+  GROUP BY batter_id
+) sz USING (batter_id)
+"""
+
+
 def request_rows_sql(
     fact_pitch: str, players_table: str, arsenal_table: str, target: Target
 ) -> str:
-    """One row per (pitcher, batter, scenario, pitch type, zone, point): the models' inputs
-    plus labels. Reads the temp views target_lineup, target_pitchers, scenarios and
-    zone_points."""
+    """One row per (pitcher, batter, scenario, pitch type, landing point): the models'
+    inputs plus labels. Reads the temp views target_batters, target_pitchers, scenarios
+    and landing_points."""
     pitch = ",\n  ".join(f"{expr} AS {name}" for name, expr in HYPOTHETICAL_PITCH.items())
     state = ",\n  ".join(f"s.{name}" for name in features.STATE_COLUMNS)
     history = _history(target)
     return f"""
-WITH batters AS (
-  SELECT l.batter_id, l.lineup_spot, pl.full_name AS batter_name, pl.bats,
-    coalesce(sz.sz_top, pl.strike_zone_top) AS sz_top,
-    coalesce(sz.sz_bot, pl.strike_zone_bottom) AS sz_bot
-  FROM target_lineup l
-  LEFT JOIN {players_table} pl ON pl.player_id = l.batter_id
-  LEFT JOIN (
-    SELECT batter_id, median(sz_top) AS sz_top, median(sz_bot) AS sz_bot
-    FROM {fact_pitch}
-    WHERE {history}
-    GROUP BY batter_id
-  ) sz USING (batter_id)
-),
--- The side each batter hits from against each pitcher hand (switch hitters change sides)
+WITH -- The side each batter hits from against each pitcher hand (switch hitters change sides)
 sides AS (
   SELECT batter_id, pitcher_throws, mode(batter_stands) AS batter_stands
   FROM {fact_pitch}
@@ -260,7 +268,7 @@ matchups AS (
       CASE WHEN b.bats = 'S' THEN if(p.pitcher_throws = 'R', 'L', 'R') ELSE b.bats END
     ) AS batter_stands
   FROM pitchers p
-  CROSS JOIN batters b
+  CROSS JOIN target_batters b
   LEFT JOIN sides s ON s.batter_id = b.batter_id AND s.pitcher_throws = p.pitcher_throws
 ),
 -- Each pitcher's latest arsenal, limited to pitches they actually use
@@ -284,7 +292,7 @@ groups AS (
 SELECT
   m.pitcher_id, m.pitcher_name, m.is_probable_starter,
   m.batter_id, m.batter_name, m.lineup_spot,
-  s.scenario, z.zone, z.point,
+  s.scenario, z.land,
   a.pitches_thrown AS pitcher_pitches_thrown, a.usage_rate AS pitch_usage_rate,
   DATE'{target.series_start}' AS game_date,
   {pitch},
@@ -293,7 +301,7 @@ FROM matchups m
 JOIN arsenal a USING (pitcher_id)
 JOIN groups g ON g.pitch_type = a.pitch_type
 CROSS JOIN scenarios s
-CROSS JOIN zone_points z
+CROSS JOIN landing_points z
 """
 
 
@@ -306,22 +314,27 @@ def count_group_sql(balls: str = "balls", strikes: str = "strikes") -> str:
     return f"CASE {cases} END"
 
 
-def usage_sql(fact_pitch: str, target: Target) -> str:
-    """Each target pitcher's mix of pitch type x zone for each scenario count, against
-    same- or opposite-side hitters, over the trailing HISTORY_DAYS. This is "the pitcher's
-    usual choice" the recommendations are compared with.
+def usage_sql(fact_pitch: str, target: Target, by: str) -> str:
+    """Each target pitcher's mix for each scenario count against same- or opposite-side
+    hitters, over the trailing HISTORY_DAYS: the share of his pitches by pitch type and
+    `by`, either "zone" (Statcast zone, to show next to each option) or "land" (the nearest
+    landing point, to value his usual choice with the same model scores as the options).
 
     It uses the exact count when the pitcher threw at least MIN_COUNT_PITCHES there against
     that side, and his count group otherwise. Pooling a whole group would be misleading:
     full count shares "two strikes" with 0-2, where pitchers throw far more chase pitches.
     Reads the temp views target_pitchers and scenarios.
     """
+    if by not in ("zone", "land"):
+        raise ValueError(by)
+    height = "(plate_z - sz_bot) / (sz_top - sz_bot)"
     return f"""
 WITH pitches AS (
   SELECT pitcher_id, balls, strikes, {count_group_sql()} AS count_group,
-    pitcher_throws = batter_stands AS same_side, pitch_type, zone
+    pitcher_throws = batter_stands AS same_side, pitch_type, zone,
+    {options.landing_index_sql("plate_x", height)} AS land
   FROM {fact_pitch}
-  WHERE ({COMPETITIVE}) AND {_history(target)} AND zone IS NOT NULL
+  WHERE ({COMPETITIVE}) AND {_history(target)} AND zone IS NOT NULL AND sz_top > sz_bot
     AND pitcher_id IN (SELECT pitcher_id FROM target_pitchers)
 ),
 count_totals AS (
@@ -337,7 +350,7 @@ situations AS (
   CROSS JOIN (SELECT DISTINCT balls, strikes FROM scenarios) c
   LEFT JOIN count_totals t USING (pitcher_id, same_side, balls, strikes)
 )
-SELECT s.pitcher_id, s.balls, s.strikes, s.same_side, p.pitch_type, p.zone,
+SELECT s.pitcher_id, s.balls, s.strikes, s.same_side, p.pitch_type, p.{by},
   first(s.by_exact_count) AS usual_by_exact_count,
   count(*) / sum(count(*)) OVER (PARTITION BY s.pitcher_id, s.balls, s.strikes, s.same_side)
     AS usage
@@ -348,5 +361,5 @@ JOIN pitches p
     WHEN s.by_exact_count THEN p.balls = s.balls AND p.strikes = s.strikes
     ELSE p.count_group = s.count_group
   END
-GROUP BY s.pitcher_id, s.balls, s.strikes, s.same_side, p.pitch_type, p.zone
+GROUP BY s.pitcher_id, s.balls, s.strikes, s.same_side, p.pitch_type, p.{by}
 """
