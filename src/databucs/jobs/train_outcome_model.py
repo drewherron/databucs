@@ -27,9 +27,9 @@ import os
 
 from databucs.models import features
 from databucs.models.outcomes import BY_NAME, COMPETITIVE, OutcomeModel
+from databucs.models.scoring import CHAMPION_ALIAS
 
 HOLDOUT_GAMES_MOD = 10  # games with game_pk % 10 == 0 form the early-stopping holdout
-CHAMPION_ALIAS = "champion"
 CHALLENGER_ALIAS = "challenger"
 PROMOTE_CHOICES = ("if_better", "always")
 

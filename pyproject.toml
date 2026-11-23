@@ -13,6 +13,7 @@ build-features = "databucs.jobs.build_features:main"
 check-features = "databucs.jobs.check_features:main"
 train-outcome-model = "databucs.jobs.train_outcome_model:main"
 evaluate-outcome-models = "databucs.jobs.evaluate_outcome_models:main"
+recommend-pitches = "databucs.jobs.recommend_pitches:main"
 
 [dependency-groups]
 dev = [

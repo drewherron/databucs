@@ -18,16 +18,11 @@ from __future__ import annotations
 
 import argparse
 
-from databucs.jobs.train_outcome_model import CHAMPION_ALIAS, parse_seasons
+from databucs.jobs.train_outcome_model import parse_seasons
 from databucs.models import features
-from databucs.models.outcomes import COMPETITIVE, MODELS
-from databucs.models.run_values import (
-    RESULT_PROBABILITY_SQL,
-    RESULT_SQL,
-    RESULTS,
-    prediction_struct_type,
-    run_values_sql,
-)
+from databucs.models.outcomes import COMPETITIVE
+from databucs.models.run_values import RESULT_SQL, RESULTS
+from databucs.models.scoring import expected_value_sql, register_run_values, score_outcomes
 
 DECILES = 10
 PITCH_KEY = ["game_pk", "at_bat_number", "pitch_number"]  # to join the predictions back
@@ -44,13 +39,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def expected_value_sql() -> tuple[str, str]:
-    """SQL select items for each result's probability, and the expected run value."""
-    probabilities = ",\n  ".join(f"{RESULT_PROBABILITY_SQL[r]} AS p_{r}" for r in RESULTS)
-    expected = " + ".join(f"p_{r} * rv_{r}" for r in RESULTS)
-    return probabilities, expected
-
-
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     ml = f"{args.catalog}.{args.ml_schema}"
@@ -63,7 +51,6 @@ def main(argv: list[str] | None = None) -> None:
     import mlflow
     from databricks.feature_engineering import FeatureEngineeringClient
     from pyspark.sql import SparkSession
-    from pyspark.sql import functions as F
 
     spark = SparkSession.builder.getOrCreate()
     fe = FeatureEngineeringClient()
@@ -71,13 +58,7 @@ def main(argv: list[str] | None = None) -> None:
     mlflow.set_experiment(args.experiment)
 
     # 1. Run values from the training seasons
-    spark.sql(run_values_sql(fact_pitch, args.train_seasons)).createOrReplaceTempView("run_values")
-    wide_values = ",\n  ".join(
-        f"max(CASE WHEN result = '{r}' THEN run_value END) AS rv_{r}" for r in RESULTS
-    )
-    spark.sql(
-        f"SELECT balls, strikes, outs, base_state, {wide_values} FROM run_values GROUP BY ALL"
-    ).createOrReplaceTempView("run_values_wide")
+    register_run_values(spark, fact_pitch, args.train_seasons, "run_values_wide")
 
     # 2. Score the test season with each champion model
     pitches = spark.sql(
@@ -89,17 +70,7 @@ def main(argv: list[str] | None = None) -> None:
         WHERE ({COMPETITIVE}) AND season = {args.test_season}
         """
     )
-    predictions = pitches.select(*PITCH_KEY)
-    for model in MODELS:
-        uri = f"models:/{ml}.outcome_{model.name}@{CHAMPION_ALIAS}"
-        scored = fe.score_batch(
-            model_uri=uri, df=pitches, result_type=prediction_struct_type(model.name)
-        )
-        predictions = predictions.join(
-            scored.select(*PITCH_KEY, F.col("prediction").alias(model.name)),
-            PITCH_KEY,
-        )
-    predictions.createOrReplaceTempView("predictions")
+    score_outcomes(fe, pitches, ml, PITCH_KEY).createOrReplaceTempView("predictions")
 
     # 3. Combine into expected run value, next to what actually happened
     probabilities, expected = expected_value_sql()
@@ -115,10 +86,7 @@ def main(argv: list[str] | None = None) -> None:
         probabilities AS (
           SELECT a.*, {probabilities}
           FROM actual a
-          JOIN (SELECT game_pk, at_bat_number, pitch_number,
-                  named_struct({", ".join(f"'{m.name}', {m.name}" for m in MODELS)}) AS p
-                FROM predictions) pr
-            USING (game_pk, at_bat_number, pitch_number)
+          JOIN predictions USING (game_pk, at_bat_number, pitch_number)
         )
         SELECT p.*, v.* EXCEPT (balls, strikes, outs, base_state), {expected} AS expected_run_value
         FROM probabilities p

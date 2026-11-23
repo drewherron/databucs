@@ -1,0 +1,59 @@
+# Score every Pirates pitcher's pitch options (pitch type x zone) against an opponent's
+# batters in a set of game scenarios, with the @champion outcome models. Writes
+# <ml schema>.pitch_option_scores, replacing that series' rows. See docs/recommender.md.
+#
+# With no parameters it targets the next Pirates series within max_days_ahead, or, if
+# there is none (the offseason), a demo on the last series played, using only data from
+# before it.
+#
+#   databricks bundle run recommend_pitches
+#   databricks bundle run recommend_pitches --params series_start=2026-09-25
+#   databricks bundle run recommend_pitches --params opponent_id=116,series_start=2027-04-01,lineup=<ids in order>
+resources:
+  jobs:
+    recommend_pitches:
+      name: recommend_pitches
+      tags:
+        project: databucs
+      performance_target: STANDARD
+      max_concurrent_runs: 1
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+      parameters:
+        - name: opponent_id
+          default: ""
+        - name: series_start
+          default: ""
+        - name: lineup
+          default: "" # comma-separated batter ids in batting order; default: projected
+        - name: pitchers
+          default: "" # comma-separated pitcher ids; default: recent staff + probables
+        - name: max_days_ahead
+          default: "10"
+      tasks:
+        - task_key: recommend_pitches
+          environment_key: scoring
+          max_retries: 0
+          python_wheel_task:
+            package_name: databucs
+            entry_point: recommend-pitches
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver-schema=${resources.schemas.silver.name}
+              - --gold-schema=${resources.schemas.gold.name}
+              - --ml-schema=${resources.schemas.ml.name}
+              - --opponent-id={{job.parameters.opponent_id}}
+              - --series-start={{job.parameters.series_start}}
+              - --lineup={{job.parameters.lineup}}
+              - --pitchers={{job.parameters.pitchers}}
+              - --max-days-ahead={{job.parameters.max_days_ahead}}
+      environments:
+        - environment_key: scoring
+          spec:
+            environment_version: "4" # serverless environment; Python 3.12, matching local dev
+            dependencies:
+              - ../dist/*.whl
+              - databricks-feature-engineering==0.18.4
+              - lightgbm==4.7.0
+              - mlflow==3.18.0
