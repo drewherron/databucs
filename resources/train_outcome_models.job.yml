@@ -3,9 +3,12 @@
 # Then combine the champions into expected run value and evaluate it on the test season
 # (src/databucs/jobs/evaluate_outcome_models.py).
 # Each run is logged to the outcome_models MLflow experiment (experiments.yml) and registered in Unity Catalog as
-# <catalog>.<ml schema>.outcome_<model> with the alias "champion".
+# <catalog>.<ml schema>.outcome_<model>. A new version becomes @champion only if it beats
+# the current champion's test log loss (otherwise @challenger), unless promote=always.
 #
 #   databricks bundle run train_outcome_models
+#   databricks bundle run train_outcome_models --params promote=always   # model inputs changed
+#   databricks bundle run train_outcome_models --params 'models=["swing"]'  # just one model
 #   databricks bundle run train_outcome_models --params sample_percent=10   # quick trial
 resources:
   jobs:
@@ -25,10 +28,14 @@ resources:
           default: "2026"
         - name: sample_percent
           default: "100"
+        - name: promote
+          default: if_better # or "always"
+        - name: models
+          default: '["swing", "take_outcome", "whiff", "contact_outcome", "in_play_outcome"]'
       tasks:
         - task_key: train
           for_each_task:
-            inputs: '["swing", "take_outcome", "whiff", "contact_outcome", "in_play_outcome"]'
+            inputs: "{{job.parameters.models}}"
             concurrency: 5 # Free Edition allows 5 concurrent tasks
             task:
               task_key: train_model
@@ -46,6 +53,7 @@ resources:
                   - --train-seasons={{job.parameters.train_seasons}}
                   - --test-season={{job.parameters.test_season}}
                   - --sample-percent={{job.parameters.sample_percent}}
+                  - --promote={{job.parameters.promote}}
         - task_key: evaluate_expected_run_value
           depends_on:
             - task_key: train

@@ -21,11 +21,11 @@ import argparse
 import datetime as dt
 from types import ModuleType
 
-from databucs.features import batter_profile, game_state, pitcher_arsenal
+from databucs.features import batter_profile, pitcher_arsenal
 from databucs.features.common import Source
 from databucs.ingestion.dates import DEFAULT_LOOKBACK_DAYS, optional_date, resolve_window
 
-TABLES: list[ModuleType] = [batter_profile, pitcher_arsenal, game_state]
+TABLES: list[ModuleType] = [batter_profile, pitcher_arsenal]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

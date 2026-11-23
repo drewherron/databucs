@@ -1,9 +1,10 @@
 """The outcome model as an MLflow pyfunc: the feature transform plus the LightGBM model.
 
-Logged with FeatureEngineeringClient.log_model, so fe.score_batch looks up the batter,
-arsenal and game state features itself; the caller passes the keys, the game date and the
-pitch's own columns (features.PITCH_COLUMNS). predict() returns one probability column per
-class, named p_<class>.
+Logged with FeatureEngineeringClient.log_model, so fe.score_batch looks up the batter and
+arsenal features itself; the caller passes the lookup keys (features.LOOKUP_KEY_COLUMNS),
+the pitch's own columns (features.PITCH_COLUMNS) and the game state
+(features.STATE_COLUMNS). predict() returns one probability column per class, named
+p_<class>.
 """
 
 from __future__ import annotations

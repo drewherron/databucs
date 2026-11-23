@@ -1,15 +1,19 @@
 """Train, evaluate and register one pitch outcome model.
 
-1. Training rows come from gold.fact_pitch (the pitch, its label) joined to the feature
-   tables with FeatureEngineeringClient.create_training_set (point-in-time lookups).
+1. Training rows come from gold.fact_pitch (the pitch, the game state, the label) joined to
+   the batter and arsenal feature tables with FeatureEngineeringClient.create_training_set
+   (point-in-time lookups).
 2. LightGBM is trained on the training seasons, with early stopping on a holdout of 10% of
    their games.
 3. The test season is scored and compared with simple baselines: the overall class rates,
    the rates by count, and the rates by pitch type.
 4. Everything goes to MLflow: parameters, metrics, calibration tables and plots, and
    feature importance.
-5. The model is logged with fe.log_model, so it carries its feature lookups, registered in
-   Unity Catalog as <catalog>.<ml schema>.outcome_<name>, and given the alias "champion".
+5. The model is logged with fe.log_model, so it carries its feature lookups, and
+   registered in Unity Catalog as <catalog>.<ml schema>.outcome_<name>. With --promote
+   if_better it becomes @champion only if its test log loss beats the current champion's
+   (same test season); otherwise it gets @challenger. --promote always skips the check, for
+   when the model's inputs changed and the old champion can't stand in for it.
 
 Run one model per invocation, e.g. --model swing. The train_outcome_models job runs all
 five in parallel.
@@ -26,6 +30,8 @@ from databucs.models.outcomes import BY_NAME, COMPETITIVE, OutcomeModel
 
 HOLDOUT_GAMES_MOD = 10  # games with game_pk % 10 == 0 form the early-stopping holdout
 CHAMPION_ALIAS = "champion"
+CHALLENGER_ALIAS = "challenger"
+PROMOTE_CHOICES = ("if_better", "always")
 
 LGB_PARAMS = {
     "learning_rate": 0.05,
@@ -38,7 +44,9 @@ LGB_PARAMS = {
     "verbose": -1,
     "seed": 7,
 }
-MAX_ROUNDS = 3000
+# The swing model was still improving at 3,000 rounds; 0.1 instead of 0.05 stopped at 1,700
+# but tested worse (log loss 0.4320 vs 0.4291), so it gets more rounds instead
+MAX_ROUNDS = 8000
 EARLY_STOPPING_ROUNDS = 100
 
 
@@ -80,6 +88,29 @@ def fit_sample_condition(fit_rows: int, max_fit_rows: int, test_season: int) -> 
     )
 
 
+def should_promote(
+    promote: str,
+    new_log_loss: float,
+    new_test_season: int,
+    champion_log_loss: float | None,
+    champion_test_season: int | None,
+) -> tuple[bool, str]:
+    """Whether the new version takes @champion, and why (printed by the job)."""
+    if promote == "always":
+        return True, "--promote always"
+    if champion_log_loss is None:
+        return True, "no current champion"
+    if champion_test_season != new_test_season:
+        return False, (
+            f"champion was tested on {champion_test_season}, not {new_test_season}; "
+            "compare by hand or use --promote always"
+        )
+    verdict = "beats" if new_log_loss < champion_log_loss else "does not beat"
+    return new_log_loss < champion_log_loss, (
+        f"test log loss {new_log_loss:.5f} {verdict} the champion's {champion_log_loss:.5f}"
+    )
+
+
 def parse_seasons(value: str) -> list[int]:
     return [int(x) for x in value.split(",") if x.strip()]
 
@@ -105,6 +136,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=1_500_000,
         help="Fit on at most about this many rows, sampled by game, to fit in memory.",
     )
+    parser.add_argument("--promote", choices=PROMOTE_CHOICES, default="if_better")
     return parser.parse_args(argv)
 
 
@@ -154,6 +186,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     training_set = fe.create_training_set(
         df=labels, feature_lookups=features.feature_lookups(ml), label="label"
+    )
+    # The same rows without the split-only columns, for fe.log_model: it records the
+    # training set's columns as the model's inputs
+    logged_training_set = fe.create_training_set(
+        df=labels,
+        feature_lookups=features.feature_lookups(ml),
+        label="label",
+        exclude_columns=features.TRAINING_ONLY_COLUMNS,
     )
     # Only the columns transform() needs, cast to compact types in Spark. Arrow then builds
     # float32 pandas columns instead of float64 (and instead of Python objects for nullable
@@ -314,7 +354,7 @@ def main(argv: list[str] | None = None) -> None:
             model=model,
             artifact_path="model",
             flavor=mlflow.pyfunc,
-            training_set=training_set,
+            training_set=logged_training_set,
             registered_model_name=registered_name,
             code_paths=[os.path.dirname(databucs.__file__)],
             extra_pip_requirements=[f"lightgbm=={lgb.__version__}"],
@@ -330,9 +370,25 @@ def main(argv: list[str] | None = None) -> None:
         ),
         key=lambda v: int(v.version),
     ).version
-    client.set_registered_model_alias(registered_name, CHAMPION_ALIAS, version)
     client.update_registered_model(registered_name, description=spec.description)
-    print(f"Registered {registered_name} version {version} as @{CHAMPION_ALIAS}")
+
+    # 6. Champion or challenger
+    champion_log_loss = champion_test_season = None
+    try:
+        champion = client.get_model_version_by_alias(registered_name, CHAMPION_ALIAS)
+    except Exception:  # no alias yet (MlflowException)
+        champion = None
+    if champion is not None and champion.version != version:
+        champion_run = client.get_run(champion.run_id).data
+        champion_log_loss = champion_run.metrics.get("test_log_loss_model")
+        champion_test_season = int(champion_run.params.get("test_season", 0)) or None
+    new_log_loss = float(results_df.loc[results_df["candidate"] == "model", "log_loss"].iloc[0])
+    promote, reason = should_promote(
+        args.promote, new_log_loss, args.test_season, champion_log_loss, champion_test_season
+    )
+    alias = CHAMPION_ALIAS if promote else CHALLENGER_ALIAS
+    client.set_registered_model_alias(registered_name, alias, version)
+    print(f"Registered {registered_name} version {version} as @{alias}: {reason}")
 
 
 if __name__ == "__main__":

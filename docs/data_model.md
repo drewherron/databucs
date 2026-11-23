@@ -146,7 +146,7 @@ they measure different things.
 ## Feature tables
 
 Model features live in the `ml` schema as Feature Engineering tables (`batter_profile`,
-`pitcher_arsenal_features`, `game_state_features`), built from `fact_pitch` by the
+`pitcher_arsenal_features`), built from `fact_pitch` by the
 `features` job. See [features.md](features.md).
 
 ## Example

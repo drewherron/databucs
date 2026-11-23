@@ -3,7 +3,8 @@ season.
 
 1. Run values per state and result from the training seasons (databucs.models.run_values).
 2. Each @champion model scores the test season's competitive pitches with
-   fe.score_batch, which looks up the batter, arsenal and game state features itself.
+   fe.score_batch, which looks up the batter and arsenal features itself; the pitch and
+   game state columns come with each row.
 3. The results' probabilities are multiplied along the outcome tree and weighted by their
    run values. The predictions are saved to <ml schema>.outcome_test_predictions.
 4. Evaluation, logged to MLflow:
@@ -29,6 +30,7 @@ from databucs.models.run_values import (
 )
 
 DECILES = 10
+PITCH_KEY = ["game_pk", "at_bat_number", "pitch_number"]  # to join the predictions back
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -78,28 +80,24 @@ def main(argv: list[str] | None = None) -> None:
     ).createOrReplaceTempView("run_values_wide")
 
     # 2. Score the test season with each champion model
-    pitch_columns = ",\n  ".join(f"{e} AS {n}" for n, e in features.PITCH_COLUMNS.items())
     pitches = spark.sql(
         f"""
         SELECT
-          {", ".join(features.LOOKUP_KEY_COLUMNS)},
-          -- Models trained before the season was taken out of their training rows still
-          -- list it as an input (fe.log_model records every training column)
-          season,
-          {pitch_columns}
+          {", ".join([*PITCH_KEY, *features.LOOKUP_KEY_COLUMNS])},
+          {features.request_columns_sql()}
         FROM {fact_pitch}
         WHERE ({COMPETITIVE}) AND season = {args.test_season}
         """
     )
-    predictions = pitches.select(*features.KEY_COLUMNS)
+    predictions = pitches.select(*PITCH_KEY)
     for model in MODELS:
         uri = f"models:/{ml}.outcome_{model.name}@{CHAMPION_ALIAS}"
         scored = fe.score_batch(
             model_uri=uri, df=pitches, result_type=prediction_struct_type(model.name)
         )
         predictions = predictions.join(
-            scored.select(*features.KEY_COLUMNS, F.col("prediction").alias(model.name)),
-            features.KEY_COLUMNS,
+            scored.select(*PITCH_KEY, F.col("prediction").alias(model.name)),
+            PITCH_KEY,
         )
     predictions.createOrReplaceTempView("predictions")
 

@@ -3,7 +3,7 @@ import datetime as dt
 
 import pytest
 
-from databucs.features import batter_profile, game_state, pitcher_arsenal
+from databucs.features import batter_profile, pitcher_arsenal
 from databucs.features.common import WINDOW_DAYS, Source, date_filter, shrunk, trailing_window
 from databucs.jobs.build_features import parse_args, parse_bool, select_tables
 from databucs.jobs.check_features import coverage_failures
@@ -61,7 +61,7 @@ def test_count_groups_partition_every_count():
             assert len(matches) == 1, (balls, strikes, matches)
 
 
-@pytest.mark.parametrize("module", [batter_profile, pitcher_arsenal, game_state])
+@pytest.mark.parametrize("module", [batter_profile, pitcher_arsenal])
 def test_sql_reads_the_window_and_returns_the_keys(module):
     sql = module.build_sql(SOURCE)
     assert "g.fact_pitch" in sql
@@ -74,7 +74,7 @@ def test_sql_reads_the_window_and_returns_the_keys(module):
 
 
 def test_unbounded_sql_has_no_date_limits():
-    for module in (batter_profile, pitcher_arsenal, game_state):
+    for module in (batter_profile, pitcher_arsenal):
         assert "DATE'" not in module.build_sql(SOURCE.all_days())
 
 
@@ -94,13 +94,13 @@ def test_full_rebuild_flag_forms():
 
 
 def test_select_tables():
-    assert len(select_tables(None)) == 3
-    assert select_tables(["game_state_features"]) == [game_state]
+    assert len(select_tables(None)) == 2
+    assert select_tables(["pitcher_arsenal_features"]) == [pitcher_arsenal]
     with pytest.raises(ValueError):
         select_tables(["nope"])
 
 
 def test_coverage_failures():
-    assert coverage_failures(100, 99, 98, 100) == []
-    assert coverage_failures(0, 0, 0, 0) == ["no pitches in the sample"]
-    assert len(coverage_failures(100, 50, 99, 99)) == 2
+    assert coverage_failures(100, 99, 98) == []
+    assert coverage_failures(0, 0, 0) == ["no pitches in the sample"]
+    assert len(coverage_failures(100, 50, 80)) == 2

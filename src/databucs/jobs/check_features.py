@@ -1,15 +1,15 @@
 """Check that the feature tables give point-in-time correct training sets.
 
 Builds a training set with FeatureEngineeringClient.create_training_set: pitches from the
-last week of game days (labelled with run_value), joined to all three feature tables with
+last week of game days (labelled with run_value), joined to both feature tables with
 FeatureLookup. Then it checks:
 
 1. No leakage: every looked-up batter and arsenal row only covers game days before the
    pitch's game day.
 2. The windows are right: for each batter row used, pitches_seen equals a direct count of
    that batter's pitches in the trailing window.
-3. Coverage: every pitch has game state, and most have batter and arsenal features
-   (debuts and new pitch types have none yet).
+3. Coverage: most pitches have batter and arsenal features (debuts and new pitch types
+   have none yet).
 4. Future lookup: looking up the same batters and pitchers for a game 30 days after the
    last game day returns their latest rows.
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 
-from databucs.features import batter_profile, game_state, pitcher_arsenal
+from databucs.features import batter_profile, pitcher_arsenal
 from databucs.features.common import WINDOW_DAYS
 
 SAMPLE_DAYS = 7
@@ -41,15 +41,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def coverage_failures(
-    total: int, with_batter: int, with_arsenal: int, with_state: int
-) -> list[str]:
+def coverage_failures(total: int, with_batter: int, with_arsenal: int) -> list[str]:
     """Coverage problems as printable lines (empty when coverage is fine)."""
     failures = []
     if total == 0:
         return ["no pitches in the sample"]
-    if with_state != total:
-        failures.append(f"game state missing for {total - with_state} of {total} pitches")
     if with_batter / total < MIN_BATTER_COVERAGE:
         failures.append(f"batter features for only {with_batter / total:.1%} of pitches")
     if with_arsenal / total < MIN_ARSENAL_COVERAGE:
@@ -94,10 +90,6 @@ def main(argv: list[str] | None = None) -> None:
                 table_name=f"{ml}.{pitcher_arsenal.TABLE}",
                 lookup_key=["pitcher_id", "pitch_type"],
                 timestamp_lookup_key="game_date",
-            ),
-            FeatureLookup(
-                table_name=f"{ml}.{game_state.TABLE}",
-                lookup_key=game_state.PRIMARY_KEYS,
             ),
         ]
 
@@ -147,13 +139,9 @@ def main(argv: list[str] | None = None) -> None:
         F.count("*").alias("total"),
         F.count("batter_data_through").alias("batter"),
         F.count("arsenal_data_through").alias("arsenal"),
-        F.count("count_state").alias("state"),
     ).first()
-    print(
-        f"Coverage of {counts.total} pitches: batter {counts.batter}, "
-        f"arsenal {counts.arsenal}, game state {counts.state}"
-    )
-    failures += coverage_failures(counts.total, counts.batter, counts.arsenal, counts.state)
+    print(f"Coverage of {counts.total} pitches: batter {counts.batter}, arsenal {counts.arsenal}")
+    failures += coverage_failures(counts.total, counts.batter, counts.arsenal)
 
     # 4. Future lookup: a game FUTURE_DAYS after the last game day gets the latest rows
     future_day = last_day + dt.timedelta(days=FUTURE_DAYS)
@@ -162,9 +150,7 @@ def main(argv: list[str] | None = None) -> None:
         .distinct()
         .withColumn("game_date", F.lit(future_day))
     )
-    future_df = fe.create_training_set(
-        df=future, feature_lookups=lookups()[:2], label=None
-    ).load_df()
+    future_df = fe.create_training_set(df=future, feature_lookups=lookups(), label=None).load_df()
     latest = spark.sql(
         f"SELECT batter_id, max(batter_data_through) AS latest FROM {ml}.{batter_profile.TABLE} "
         "GROUP BY batter_id"

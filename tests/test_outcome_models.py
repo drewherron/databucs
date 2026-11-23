@@ -2,13 +2,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from databucs.jobs.train_outcome_model import parse_args, training_where
+from databucs.features import batter_profile
+from databucs.jobs.train_outcome_model import parse_args, should_promote, training_where
 from databucs.models import evaluation, features
 from databucs.models.outcomes import BY_NAME, MODELS
 
 
 def looked_up_row(**overrides):
-    """One row as it looks after the feature lookups: pitch columns + looked-up features."""
+    """One row as it looks after the feature lookups: pitch and state columns + features."""
     row = {
         "pitch_type": "SL",
         "pitch_group": "breaking",
@@ -27,11 +28,14 @@ def looked_up_row(**overrides):
         "pitch_release_height": 5.8,
         "pitch_extension": 6.5,
         "pitch_arm_angle": 35.0,
+        "balls": 1,
+        "strikes": 2,
+        "outs": 1,
+        "inning": 3,
+        "bat_score_diff": 0,
+        "times_through_order": 1,
         "base_state": "1__",
-        "count_group": "two_strikes",
     }
-    for col in features.GAME_STATE_FEATURES:
-        row[col] = 1
     for col in features.BATTER_FEATURES + features.BATTER_CELL_COUNTS:
         row[col] = 0.0
     for col in features.ARSENAL_FEATURES:
@@ -94,10 +98,63 @@ def test_unknown_categories_become_missing_not_new_levels():
     assert list(out["pitch_type"].cat.categories) == features.CATEGORIES["pitch_type"]
 
 
+def test_game_state_is_derived_from_the_request_columns():
+    df = pd.DataFrame(
+        [
+            looked_up_row(),  # 1-2, runner on first, third inning, tied
+            looked_up_row(balls=0, strikes=0, base_state="_2_", inning=8, bat_score_diff=-3),
+            looked_up_row(balls=3, strikes=1, base_state="___", inning=9, bat_score_diff=-3),
+            looked_up_row(batter_stands="L", base_state=None),
+        ]
+    )
+    out = features.transform(df)
+    assert out["count_group"].tolist() == ["two_strikes", "neutral", "hitter_ahead", "two_strikes"]
+    assert out["is_first_pitch_of_pa"].tolist() == [0, 1, 0, 0]
+    assert out["runners_on"].tolist()[:3] == [1, 1, 0]
+    assert out["runner_in_scoring_position"].tolist()[:3] == [0, 1, 0]
+    # Down 3 in the 8th with a runner on: the runner, batter and on-deck hitter tie it
+    assert out["is_late_and_close"].tolist()[:3] == [0, 1, 0]
+    assert out["is_platoon_same_side"].tolist() == [1, 1, 1, 0]
+    assert out.loc[3, ["runners_on", "is_late_and_close"]].isna().all()
+
+
+def test_count_group_matches_the_batter_profile_cells():
+    """transform() must put each count in the same group as the batter profile's SQL."""
+    counts = [(b, s) for b in range(4) for s in range(3)]
+    out = features.transform(pd.DataFrame([looked_up_row(balls=b, strikes=s) for b, s in counts]))
+    for (balls, strikes), group in zip(counts, out["count_group"], strict=True):
+        condition = batter_profile.COUNT_GROUPS[group]
+        python = condition.replace("AND", "and").replace(" = ", " == ")
+        assert eval(python, {"balls": balls, "strikes": strikes}), (balls, strikes, group)
+
+
+def test_a_hypothetical_pitch_needs_no_pitch_key():
+    """The recommender's rows: request columns and lookups only, no game_pk etc."""
+    row = looked_up_row()
+    hypothetical = pd.DataFrame([{k: row[k] for k in features.TRANSFORM_INPUTS}])
+    assert not {"game_pk", "at_bat_number", "pitch_number"} & set(hypothetical.columns)
+    assert list(features.transform(hypothetical).columns) == features.FEATURES
+
+
+def test_labels_sql_has_the_request_columns_and_only_the_split_key():
+    sql = features.labels_sql("g.fact_pitch", "TRUE", "int(is_swing)")
+    for name in [*features.PITCH_COLUMNS, *features.STATE_COLUMNS, *features.LOOKUP_KEY_COLUMNS]:
+        assert f"{name}" in sql
+    assert "game_pk" in sql and "at_bat_number" not in sql and "season" not in sql
+
+
+def test_should_promote():
+    assert should_promote("always", 0.5, 2026, 0.4, 2026)[0]
+    assert should_promote("if_better", 0.5, 2026, None, None)[0]
+    assert should_promote("if_better", 0.4, 2026, 0.5, 2026)[0]
+    assert not should_promote("if_better", 0.5, 2026, 0.4, 2026)[0]
+    assert not should_promote("if_better", 0.4, 2026, 0.5, 2025)[0]  # different test season
+
+
 def test_feature_lookups_never_return_model_label_or_key_columns():
     looked_up = set(features.BATTER_FEATURES + features.ARSENAL_FEATURES)
     assert not looked_up & {"label", *features.LOOKUP_KEY_COLUMNS}
-    assert not looked_up & set(features.PITCH_COLUMNS)
+    assert not looked_up & {*features.PITCH_COLUMNS, *features.STATE_COLUMNS}
 
 
 def test_models_cover_the_pitch_result_tree():

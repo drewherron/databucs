@@ -9,9 +9,8 @@ lookups.
 |---|---|---|---|
 | `batter_profile` | `batter_id` | `as_of_date` | batter, from the day after each day they batted |
 | `pitcher_arsenal_features` | `pitcher_id`, `pitch_type` | `as_of_date` | pitcher × pitch type, from the day after each day they pitched |
-| `game_state_features` | `game_pk`, `at_bat_number`, `pitch_number` | none | pitch |
 
-All three are built from `gold.fact_pitch`. The SQL is in `src/databucs/features/`.
+Both are built from `gold.fact_pitch`. The SQL is in `src/databucs/features/`.
 
 ## Point-in-time correctness
 
@@ -27,10 +26,12 @@ day it includes** (`batter_data_through`, `arsenal_data_through`).
   pitch type a pitcher hasn't thrown before. A model should
   treat NULL as "no information" or fill it with the league average.
 
-Game state is known before the pitch is thrown, so `game_state_features` has no time key:
-the row for a pitch is always safe to use for that pitch. To score a hypothetical
-situation, such as a 3-1 count with runners on, the recommender passes these values in
-directly instead of looking them up.
+Game state (count, outs, runners, inning, score) is not a feature table. It describes the
+situation being scored, so it comes with each row as a request-time input, both in training
+(from `fact_pitch`) and when the recommender scores a hypothetical, such as a slider at
+3-1 with runners on. An earlier version looked it up from a `game_state_features` table
+keyed by pitch, which made hypothetical pitches impossible to score, since they have no
+pitch key. See [outcome_models.md](outcome_models.md).
 
 ## Windows and shrinkage
 
@@ -95,15 +96,6 @@ primary fastball, which is how hitters experience a secondary pitch. Pitch-type 
 change across seasons (see "Statcast quirks" in [data_model.md](data_model.md)), so models
 should lean on these shape values rather than on the label.
 
-## game_state_features
-
-The situation before each pitch:
-- count and count group
-- outs, runners, runners on base, runner in scoring position
-- inning, score difference for the batting team
-- late and close (Elias definition)
-- times through the order, first pitch of the plate appearance, and same-side matchup
-
 ## Building and checking
 
 - **Updates:** the `features` job runs after every `ingest` run, for the same window. New
@@ -112,11 +104,11 @@ The situation before each pitch:
 - **Rebuilds:** after changing a feature definition, rebuild with
   `databricks bundle run features --params full_rebuild=true`.
 - **Checks:** the job's `check_features` task builds a training set with
-  `create_training_set` from the latest week of pitches and all three feature tables, then
+  `create_training_set` from the latest week of pitches and both feature tables, then
   checks four things:
   - No row uses data from the pitch's game day or later.
   - Each batter row's `pitches_seen` matches a direct count over its window.
-  - Every pitch has game state, and at least 90% have batter and arsenal features.
+  - At least 90% of pitches have batter and arsenal features.
     Coverage is lowest in opening week, because of debuts and new pitch types. In 2026 it
     was 99.4% (batter) and 96.3% (arsenal) in opening week, and 99.8% and 98.6% in June.
   - A lookup for a game 30 days later returns each batter's latest row.
@@ -126,7 +118,7 @@ from databricks.feature_engineering import FeatureEngineeringClient, FeatureLook
 
 fe = FeatureEngineeringClient()
 training_set = fe.create_training_set(
-    df=labels,  # game_pk, at_bat_number, pitch_number, game_date, batter_id, pitcher_id, pitch_type, run_value
+    df=labels,  # game_date, batter_id, pitcher_id, pitch_type, run_value, ...
     feature_lookups=[
         FeatureLookup(
             table_name="workspace.ml.batter_profile",
@@ -137,10 +129,6 @@ training_set = fe.create_training_set(
             table_name="workspace.ml.pitcher_arsenal_features",
             lookup_key=["pitcher_id", "pitch_type"],
             timestamp_lookup_key="game_date",
-        ),
-        FeatureLookup(
-            table_name="workspace.ml.game_state_features",
-            lookup_key=["game_pk", "at_bat_number", "pitch_number"],
         ),
     ],
     label="run_value",
