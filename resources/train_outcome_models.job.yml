@@ -1,7 +1,8 @@
 # Train, evaluate and register the five pitch outcome models (see
 # src/databucs/models/outcomes.py), one for_each iteration per model, all in parallel.
 # Then combine the champions into expected run value and evaluate it on the test season
-# (src/databucs/jobs/evaluate_outcome_models.py).
+# (src/databucs/jobs/evaluate_outcome_models.py), and backtest the recommender's core claim
+# within situations (src/databucs/jobs/backtest_recommender.py).
 # Each run is logged to the outcome_models MLflow experiment (experiments.yml) and registered in Unity Catalog as
 # <catalog>.<ml schema>.outcome_<model>. A new version becomes @champion only if it beats
 # the current champion's test log loss (otherwise @challenger), unless promote=always.
@@ -69,6 +70,21 @@ resources:
               - --experiment=${resources.experiments.outcome_models.name}
               - --train-seasons={{job.parameters.train_seasons}}
               - --test-season={{job.parameters.test_season}}
+        # Within the same situation, do pitches rated better give up fewer runs?
+        # (src/databucs/models/backtest.py)
+        - task_key: backtest_recommender
+          depends_on:
+            - task_key: evaluate_expected_run_value
+          environment_key: training
+          max_retries: 0
+          python_wheel_task:
+            package_name: databucs
+            entry_point: backtest-recommender
+            parameters:
+              - --catalog=${var.catalog}
+              - --gold-schema=${resources.schemas.gold.name}
+              - --ml-schema=${resources.schemas.ml.name}
+              - --experiment=${resources.experiments.outcome_models.name}
       environments:
         - environment_key: training
           spec:

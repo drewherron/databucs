@@ -196,6 +196,47 @@ away.
 - **3-1:** the model prefers aiming a sinker or slider at the middle over his habit of
   fastballs up and away, by about 0.02 runs per pitch.
 
+## Backtest: does a better-rated pitch give up fewer runs?
+
+The recommender picks among options **within one situation**, so that's where the models
+have to be right. The earlier decile check on 2026 could look good just because the count
+drives both prediction and result. The `backtest_recommender` task of
+`train_outcome_models` (`src/databucs/models/backtest.py`) compares each 2026 pitch with
+the other pitches the same pitcher threw in the same count, outs and runners. The models
+never trained on 2026.
+
+| Compared within | Pitches | Slope (±SE) | Real gap, worst vs best third | Expected gap |
+|---|---|---|---|---|
+| pitcher × count × outs × runners | 379,954 | 1.05 ± 0.01 | 7.0 ± 0.1 runs/100 | 6.4 |
+| … and in or out of the zone | 258,211 | 0.96 ± 0.02 | 4.1 ± 0.1 runs/100 | 4.2 |
+
+- **Slope:** the regression of actual run value on expected run value, both measured
+  relative to the situation's average. A slope of 1 means the differences the models see
+  between pitches in the same situation show up in the real results, at the same size.
+  - It's 1.05, so they do.
+  - Within the same situation and the same side of the zone edge it's still 0.96. So the
+    models tell pitches apart beyond ball versus strike.
+- **Gap:** in the same situation, the pitches the models rated best (top third) gave up 7.0
+  fewer runs per 100 pitches than the worst third. The models expected 6.4.
+- **By count group:**
+  - hitter ahead: slope 1.24 (53k pitches)
+  - neutral: 1.07 (227k)
+  - two strikes: 0.95 (100k)
+
+  When the hitter is ahead, real differences are larger than predicted. So if anything,
+  the models understate how much the pitch choice matters there.
+- **Coverage:** only situations where a pitcher threw at least 15 pitches count, which is
+  53% of 2026 pitches. Standard errors come from 20 folds of games.
+
+**What it doesn't test:**
+- It scores pitches where they landed, not where they were aimed, so the aim-and-miss
+  model and the tiers aren't tested directly.
+- It's built from pitches pitchers chose to throw (selection bias). A pitch the models rate
+  well in a situation where pitchers rarely throw it is less tested than these numbers
+  suggest.
+- A direct test of the tiers would need the full recommender for every 2026 situation:
+  about 23 million scoring rows for the Pirates alone, too heavy for Free Edition.
+
 ## Known limitations
 
 - **Miss model:** one league-wide miss size for every pitcher and pitch type. Real command

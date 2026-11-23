@@ -271,3 +271,31 @@ def test_prediction_struct_matches_the_pyfunc_columns():
     from databucs.models.run_values import prediction_struct_type
 
     assert prediction_struct_type("swing") == "struct<p_take: double, p_swing: double>"
+
+
+def test_backtest_sql_groups_and_filters():
+    from databucs.models import backtest
+
+    sql = backtest.backtest_sql("m.preds", "g.fact_pitch")
+    for name, keys in backtest.GROUPINGS.items():
+        assert f"'{name}'" in sql
+        assert f"PARTITION BY {', '.join(keys)}" in sql
+    assert f"n >= {backtest.MIN_PITCHES}" in sql and "run_value IS NOT NULL" in sql
+
+
+def test_backtest_summary_mean_and_standard_error():
+    from databucs.models import backtest
+
+    folds = pd.DataFrame(
+        {
+            "grouping": ["situation"] * 4,
+            "fold": [0, 1, 2, 3],
+            "pitches": [10, 10, 10, 10],
+            "slope": [0.9, 1.1, 1.0, 1.0],
+            "worst_minus_best_actual": [6.0, 8.0, 7.0, 7.0],
+            "worst_minus_best_expected": [6.5] * 4,
+        }
+    )
+    [row] = backtest.summarize(folds)
+    assert row["pitches"] == 40 and row["slope"] == pytest.approx(1.0)
+    assert row["slope_se"] == pytest.approx(folds["slope"].std() / 2)
