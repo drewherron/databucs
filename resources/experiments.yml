@@ -1,0 +1,5 @@
+# MLflow experiments. Development mode prefixes the experiment name with "[dev <user>]".
+resources:
+  experiments:
+    outcome_models:
+      name: /Users/${workspace.current_user.userName}/databucs_outcome_models

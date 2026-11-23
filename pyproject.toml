@@ -11,9 +11,13 @@ fetch-raw = "databucs.jobs.fetch_raw:main"
 check-data-quality = "databucs.jobs.check_data_quality:main"
 build-features = "databucs.jobs.build_features:main"
 check-features = "databucs.jobs.check_features:main"
+train-outcome-model = "databucs.jobs.train_outcome_model:main"
+evaluate-outcome-models = "databucs.jobs.evaluate_outcome_models:main"
 
 [dependency-groups]
 dev = [
+    "numpy>=2",
+    "pandas>=2.2",
     "pytest>=8",
     "ruff>=0.6",
 ]

@@ -91,6 +91,12 @@ SELECT
     'swinging_strike', 'swinging_strike_blocked', 'missed_bunt', 'swinging_pitchout'
   ) AS is_whiff,
   s.description = 'called_strike' AS is_called_strike,
+  -- Bunts are tactical, so the outcome models leave them out. Statcast has no bunt flag;
+  -- bunts put in play are found by the play description ("bunt grounds out", "sacrifice
+  -- bunt", ...).
+  s.description IN ('foul_bunt', 'missed_bunt', 'bunt_foul_tip')
+    OR (s.description = 'hit_into_play' AND s.event_description RLIKE '(?i)\\bbunt')
+    AS is_bunt_attempt,
   s.description = 'hit_into_play' AS is_in_play,
   s.events IS NOT NULL AS is_final_pitch_of_pa,
   s.is_last_pitch_of_half_inning,
