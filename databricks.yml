@@ -19,6 +19,10 @@ variables:
   catalog:
     description: Unity Catalog catalog that holds all project schemas.
     default: workspace # the default catalog in Databricks Free Edition
+  warehouse_id:
+    description: SQL warehouse for dashboards.
+    lookup:
+      warehouse: Serverless Starter Warehouse # Free Edition's only warehouse
 
 targets:
   # Development mode prefixes resources per user: job names get "[dev <user>] ",

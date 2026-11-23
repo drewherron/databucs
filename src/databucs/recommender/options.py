@@ -201,3 +201,58 @@ SCENARIOS = [
     Scenario("need_strikeout", "Runner on third, one out, 1-1", 1, 1, 1, "__3"),
     Scenario("risp_two_outs", "Runner on second, two outs, 1-1", 1, 1, 2, "_2_"),
 ]
+
+
+# Tiers, relative to the pitcher's usual mix in the same situation (runs per pitch). The
+# report groups options this way instead of ranking options that are within noise of each
+# other. Judgment calls: half a run per 100 pitches better is "strong", a run per 100
+# worse is "avoid".
+STRONG_MARGIN = 0.005
+AVOID_MARGIN = 0.010
+
+GRID_X = ["Off inside", "Inside", "Middle", "Away", "Off away"]
+GRID_Y = ["Above", "Up", "Middle", "Low", "Below"]
+
+
+@dataclass(frozen=True)
+class ZoneLabel:
+    zone: int
+    batter_stands: str
+    location: str  # "low and away", "chase up and in", ...
+    grid_x: str  # GRID_X: horizontal, from the batter's point of view
+    grid_y: str  # GRID_Y
+
+
+def zone_label(zone: int, batter_stands: str) -> ZoneLabel:
+    """Where a zone is from the batter's point of view. Zones are numbered from the
+    catcher's view, and a right-handed batter stands on the catcher's left, so for him the
+    left column is inside; for a left-handed batter it's away."""
+    if zone in IN_ZONE:
+        column, row = (zone - 1) % 3, (zone - 1) // 3
+        catcher_side = (-1, 0, 1)[column]
+    else:
+        side, end = CHASE_ZONES[zone]
+        catcher_side, row = side, (0 if end == "high" else 2)
+    toward_batter = -1 if batter_stands == "R" else 1  # catcher's side the batter is on
+    horizontal = (
+        "middle" if catcher_side == 0 else ("in" if catcher_side == toward_batter else "away")
+    )
+    height = ("up", "middle", "low")[row]
+    if zone not in IN_ZONE:
+        location = f"chase {height} and {horizontal}"
+        grid_x = "Off inside" if horizontal == "in" else "Off away"
+        grid_y = "Above" if height == "up" else "Below"
+    else:
+        if height == "middle":
+            location = {"middle": "middle", "in": "inside", "away": "away"}[horizontal]
+        elif horizontal == "middle":
+            location = f"{height}, over the middle"
+        else:
+            location = f"{height} and {horizontal}"
+        grid_x = {"in": "Inside", "middle": "Middle", "away": "Away"}[horizontal]
+        grid_y = {"up": "Up", "middle": "Middle", "low": "Low"}[height]
+    return ZoneLabel(zone, batter_stands, location, grid_x, grid_y)
+
+
+def zone_labels() -> list[ZoneLabel]:
+    return [zone_label(z, side) for z in ZONES for side in ("L", "R")]

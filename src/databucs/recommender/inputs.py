@@ -284,7 +284,7 @@ arsenal AS (
   WHERE a.usage_rate >= {MIN_USAGE_RATE} AND a.pitches_thrown >= {MIN_PITCHES_THROWN}
 ),
 groups AS (
-  SELECT pitch_type, mode(pitch_group) AS pitch_group
+  SELECT pitch_type, mode(pitch_group) AS pitch_group, mode(pitch_name) AS pitch_name
   FROM {fact_pitch}
   WHERE pitch_type IS NOT NULL
   GROUP BY pitch_type
@@ -294,6 +294,7 @@ SELECT
   m.batter_id, m.batter_name, m.lineup_spot,
   s.scenario, z.land,
   a.pitches_thrown AS pitcher_pitches_thrown, a.usage_rate AS pitch_usage_rate,
+  g.pitch_name,
   DATE'{target.series_start}' AS game_date,
   {pitch},
   {state}
@@ -302,6 +303,13 @@ JOIN arsenal a USING (pitcher_id)
 JOIN groups g ON g.pitch_type = a.pitch_type
 CROSS JOIN scenarios s
 CROSS JOIN landing_points z
+"""
+
+
+def team_name_sql(teams_table: str, team_id: int) -> str:
+    """The team's name in its latest season."""
+    return f"""
+SELECT max_by(team_name, season) AS team_name FROM {teams_table} WHERE team_id = {team_id}
 """
 
 

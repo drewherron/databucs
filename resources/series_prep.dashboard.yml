@@ -1,0 +1,13 @@
+# AI/BI dashboard over <ml schema>.pitch_option_scores (written by recommend_pitches): a
+# plan per opposing batter and Pirates pitcher, and a staff overview per batter. See
+# docs/requirements_pitching_coach.md for what it must answer and docs/recommender.md for
+# the numbers. Dataset queries use bare table names; dataset_catalog / dataset_schema point
+# them at the target's ml schema.
+resources:
+  dashboards:
+    series_prep:
+      display_name: Series prep
+      file_path: ../src/dashboards/series_prep.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${resources.schemas.ml.name}

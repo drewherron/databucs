@@ -17,7 +17,9 @@
    pitches in it) against same- or opposite-side hitters. Both sides of the comparison
    include misses. Each option also shows how often he throws that pitch type into that
    zone (usual_share), as context.
-5. Write ml.pitch_option_scores, replacing the rows for this team, opponent and series
+5. Label each option for the report: pitch name, location from the batter's point of view,
+   and a tier relative to the pitcher's usual mix (options.STRONG_MARGIN / AVOID_MARGIN).
+6. Write ml.pitch_option_scores, replacing the rows for this team, opponent and series
    start.
 """
 
@@ -132,9 +134,17 @@ def main(argv: list[str] | None = None) -> None:
 
     batters = spark.sql(inputs.batters_sql(fact_pitch, players_table, target))
     batters.createOrReplaceTempView("target_batters")
-    spark.createDataFrame([asdict(s) for s in options.SCENARIOS]).withColumnRenamed(
-        "name", "scenario"
-    ).drop("description").createOrReplaceTempView("scenarios")
+    spark.createDataFrame(
+        [{**asdict(s), "scenario_order": i + 1} for i, s in enumerate(options.SCENARIOS)]
+    ).withColumnRenamed("name", "scenario").withColumnRenamed(
+        "description", "scenario_label"
+    ).createOrReplaceTempView("scenarios")
+    spark.createDataFrame([asdict(z) for z in options.zone_labels()]).createOrReplaceTempView(
+        "zone_labels"
+    )
+    opponent_name = (
+        spark.sql(inputs.team_name_sql(f"{silver}.teams", target.opponent_id)).first().team_name
+    )
     spark.createDataFrame([asdict(p) for p in options.landing_points()]).createOrReplaceTempView(
         "landing_points"
     )
@@ -197,11 +207,13 @@ def main(argv: list[str] | None = None) -> None:
         """
     ).createOrReplaceTempView("option_values")
     spark.sql(
-        f"""
-        SELECT DISTINCT {situation}, pitch_type, pitcher_name, is_probable_starter,
-          batter_name, lineup_spot, pitcher_throws, batter_stands, balls, strikes,
-          pitch_usage_rate, pitcher_pitches_thrown
-        FROM requests
+        """
+        SELECT DISTINCT r.pitcher_id, r.batter_id, r.scenario, r.pitch_type, r.pitch_name,
+          r.pitcher_name, r.is_probable_starter, r.batter_name, r.lineup_spot,
+          r.pitcher_throws, r.batter_stands, r.balls, r.strikes, r.pitch_usage_rate,
+          r.pitcher_pitches_thrown, s.scenario_label, s.scenario_order
+        FROM requests r
+        JOIN scenarios s USING (scenario)
         """
     ).createOrReplaceTempView("option_info")
 
@@ -234,6 +246,7 @@ def main(argv: list[str] | None = None) -> None:
           DATE'{target.series_start}' AS series_start,
           '{target.mode}' AS target_mode,
           '{lineup_source}' AS lineup_source,
+          '{opponent_name}' AS opponent_name,
           {args.miss_sd_ft} AS miss_sd_ft,
           o.*,
           i.* EXCEPT ({situation}, pitch_type, balls, strikes),
@@ -242,6 +255,14 @@ def main(argv: list[str] | None = None) -> None:
           usual.usual_share_covered,
           usual.usual_by_exact_count,
           o.expected_run_value - usual.usual_expected_run_value AS vs_usual,
+          zl.location, zl.grid_x, zl.grid_y,
+          CASE
+            WHEN o.expected_run_value <= usual.usual_expected_run_value - {options.STRONG_MARGIN}
+              THEN 'strong'
+            WHEN o.expected_run_value >= usual.usual_expected_run_value + {options.AVOID_MARGIN}
+              THEN 'avoid'
+            ELSE 'fine'
+          END AS tier,
           rank() OVER (
             PARTITION BY o.pitcher_id, o.batter_id, o.scenario ORDER BY o.expected_run_value
           ) AS option_rank,
@@ -254,6 +275,7 @@ def main(argv: list[str] | None = None) -> None:
         LEFT JOIN usual
           ON usual.pitcher_id = o.pitcher_id AND usual.batter_id = o.batter_id
           AND usual.scenario = o.scenario
+        JOIN zone_labels zl ON zl.zone = o.zone AND zl.batter_stands = i.batter_stands
         """
     )
 

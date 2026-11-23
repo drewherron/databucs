@@ -190,3 +190,17 @@ def test_wider_misses_spread_further():
         )
 
     assert in_zone_share(0.4) > in_zone_share(0.65) > in_zone_share(0.9)
+
+
+def test_zone_labels_are_from_the_batters_point_of_view():
+    # Zone 1 is the catcher's upper left: up and in to a righty, up and away to a lefty
+    assert options.zone_label(1, "R").location == "up and in"
+    assert options.zone_label(1, "L").location == "up and away"
+    assert options.zone_label(14, "L").location == "chase low and in"
+    assert options.zone_label(14, "R").location == "chase low and away"
+    assert options.zone_label(5, "R").location == "middle"
+    assert options.zone_label(8, "L").location == "low, over the middle"
+    labels = options.zone_labels()
+    for side in ("L", "R"):
+        cells = {(z.grid_x, z.grid_y) for z in labels if z.batter_stands == side}
+        assert len(cells) == len(options.ZONES)  # every zone has its own grid cell

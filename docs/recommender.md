@@ -109,6 +109,45 @@ zone. A rerun replaces that series' rows (`replaceWhere`).
 | `usual_expected_run_value`, `vs_usual` | his usual mix's value and the option's difference |
 | `usual_share_covered` | share of his usual mix in pitch types that were scored |
 | `pitch_usage_rate`, `pitcher_pitches_thrown` | how established the pitch is (trailing 365 days) |
+| `tier` | strong / fine / avoid, relative to his usual mix (below) |
+| `pitch_name`, `location`, `grid_x`, `grid_y` | labels for reports: "Slider", "chase low and in", and a 5×5 grid cell from the batter's point of view |
+| `opponent_name`, `scenario_label`, `scenario_order` | labels for reports |
+
+**Tiers** (`options.STRONG_MARGIN`, `AVOID_MARGIN`) are judgment calls, relative to the
+pitcher's usual mix in the same situation:
+- **strong:** at least 0.5 runs per 100 pitches better
+- **avoid:** at least 1 run per 100 pitches worse
+- **fine:** in between
+
+The report groups options this way instead of ranking options that are within noise of
+each other. On the Detroit demo, 4–23% of options are strong and 27–72% avoid, depending on
+the situation.
+
+**Locations** are from the batter's point of view. Zones are numbered from the catcher's
+view, and a right-handed batter stands on the catcher's left. So zone 1 is "up and in" to a
+right-handed batter and "up and away" to a left-handed one.
+
+## Dashboard: Series prep
+
+An AI/BI dashboard (`resources/series_prep.dashboard.yml`,
+`src/dashboards/series_prep.lvdash.json`) reads `pitch_option_scores`. It's deployed with
+the bundle, and its datasets point at the target's ml schema (`dataset_catalog` /
+`dataset_schema`). It answers the questions in
+[requirements_pitching_coach.md](requirements_pitching_coach.md):
+
+- **Pitch plan** (pick the series, hitter and pitcher):
+  - the top three options per situation, with tier, plain pitch and location, runs per
+    100 pitches better than his usual mix, their range, and how often he throws that
+    pitch there
+  - a location chart for one situation: the best pitch aimed at each spot, from the
+    hitter's point of view
+  - his three most common choices per situation, and how they rate
+- **Staff matchups** (pick the series and hitter):
+  - each Pirates pitcher's usual mix against the hitter, in runs per 100 pitches better
+    than the staff average, by situation and overall
+
+The hitter and pitcher filters default to Riley Greene and Paul Skenes for the demo. A
+later series needs new defaults, or none.
 
 ## Results: demo on the Pirates at Detroit, 2026-09-25
 
