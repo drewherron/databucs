@@ -41,13 +41,16 @@ databricks bundle run recommend_pitches --params opponent_id=116,series_start=20
   | Scenario | Count | Outs | Runners |
   |---|---|---|---|
   | first_pitch | 0-0 | 1 | none |
-  | ahead_0_2, ahead_1_2 | 0-2, 1-2 | 1 | none |
-  | behind_2_0, behind_3_1 | 2-0, 3-1 | 1 | none |
+  | ahead_0_1, ahead_0_2, ahead_1_2 | 0-1, 0-2, 1-2 | 1 | none |
+  | even_1_1, even_2_2 | 1-1, 2-2 | 1 | none |
+  | behind_1_0, behind_2_0, behind_2_1, behind_3_0, behind_3_1 | 1-0, 2-0, 2-1, 3-0, 3-1 | 1 | none |
   | full_count | 3-2 | 1 | none |
   | need_strikeout | 1-1 | 1 | third |
   | risp_two_outs | 1-1 | 2 | second |
 
-  Each is a tie in the 5th inning, the second time through the order.
+  Each is a tie in the 5th inning, the second time through the order. The bases-empty
+  scenarios cover every count so the [plate-appearance simulator](simulator.md) can use
+  them. (The results below are from the original eight.)
 
 ## Aim and miss
 
@@ -108,6 +111,7 @@ zone. A rerun replaces that series' rows (`replaceWhere`).
 | `usual_share` | how often he throws this pitch type into this zone in this count |
 | `usual_expected_run_value`, `vs_usual` | his usual mix's value and the option's difference |
 | `usual_share_covered` | share of his usual mix in pitch types that were scored |
+| `usual_p_<result>` | his usual mix's result probabilities, for the [simulator](simulator.md) |
 | `pitch_usage_rate`, `pitcher_pitches_thrown` | how established the pitch is (trailing 365 days) |
 | `tier` | strong / fine / avoid, relative to his usual mix (below) |
 | `pitch_name`, `location`, `grid_x`, `grid_y` | labels for reports: "Slider", "chase low and in", and a 5×5 grid cell from the batter's point of view |

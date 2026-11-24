@@ -189,13 +189,25 @@ class Scenario:
     times_through_order: int = 2
 
 
-# From the report plan. Situations not named in a scenario (inning, score, times through
-# the order) are a mid-game tie the second time through.
+# The plate-appearance simulator (recommender/simulate.py) starts here and needs every
+# count in it, so the bases-empty scenarios cover all twelve.
+SIMULATION_OUTS = 1
+SIMULATION_BASE_STATE = "___"
+
+# From the report plan, plus the rest of the bases-empty counts for the simulator.
+# Situations not named in a scenario (inning, score, times through the order) are a
+# mid-game tie the second time through.
 SCENARIOS = [
     Scenario("first_pitch", "First pitch, bases empty, one out", 0, 0, 1, "___"),
+    Scenario("ahead_0_1", "Pitcher ahead 0-1, bases empty", 0, 1, 1, "___"),
     Scenario("ahead_0_2", "Pitcher ahead 0-2, bases empty", 0, 2, 1, "___"),
+    Scenario("behind_1_0", "Pitcher behind 1-0, bases empty", 1, 0, 1, "___"),
+    Scenario("even_1_1", "Even 1-1, bases empty", 1, 1, 1, "___"),
     Scenario("ahead_1_2", "Pitcher ahead 1-2, bases empty", 1, 2, 1, "___"),
     Scenario("behind_2_0", "Pitcher behind 2-0, bases empty", 2, 0, 1, "___"),
+    Scenario("behind_2_1", "Pitcher behind 2-1, bases empty", 2, 1, 1, "___"),
+    Scenario("even_2_2", "Even 2-2, bases empty", 2, 2, 1, "___"),
+    Scenario("behind_3_0", "Pitcher behind 3-0, bases empty", 3, 0, 1, "___"),
     Scenario("behind_3_1", "Pitcher behind 3-1, bases empty", 3, 1, 1, "___"),
     Scenario("full_count", "Full count, bases empty", 3, 2, 1, "___"),
     Scenario("need_strikeout", "Runner on third, one out, 1-1", 1, 1, 1, "__3"),

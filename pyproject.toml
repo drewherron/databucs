@@ -16,6 +16,7 @@ evaluate-outcome-models = "databucs.jobs.evaluate_outcome_models:main"
 recommend-pitches = "databucs.jobs.recommend_pitches:main"
 backtest-recommender = "databucs.jobs.backtest_recommender:main"
 register-recommender = "databucs.jobs.register_recommender:main"
+simulate-matchups = "databucs.jobs.simulate_matchups:main"
 
 [dependency-groups]
 dev = [

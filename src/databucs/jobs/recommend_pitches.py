@@ -16,7 +16,8 @@
    his mix of pitch type x landing point in this count (or count group, if he has few
    pitches in it) against same- or opposite-side hitters. Both sides of the comparison
    include misses. Each option also shows how often he throws that pitch type into that
-   zone (usual_share), as context.
+   zone (usual_share), as context, and his mix's result probabilities (usual_p_<result>)
+   for the plate-appearance simulator.
 5. Label each option for the report: pitch name, location from the batter's point of view,
    and a tier relative to the pitcher's usual mix (options.STRONG_MARGIN / AVOID_MARGIN).
 6. Write ml.pitch_option_scores, replacing the rows for this team, opponent and series
@@ -224,6 +225,11 @@ def main(argv: list[str] | None = None) -> None:
             u.pitcher_id = i.pitcher_id AND u.balls = i.balls AND u.strikes = i.strikes
             AND u.same_side = (i.pitcher_throws = i.batter_stands)
             AND u.pitch_type = i.pitch_type"""
+    # His usual mix's result probabilities too, for the plate-appearance simulator
+    usual_probabilities = ", ".join(
+        f"sum(u.usage * l.p_{r}) / nullif(sum(u.usage), 0) AS usual_p_{r}" for r in RESULTS
+    )
+    usual_p_columns = ", ".join(f"usual.usual_p_{r}" for r in RESULTS)
     result = spark.sql(
         f"""
         WITH usual AS (
@@ -231,6 +237,7 @@ def main(argv: list[str] | None = None) -> None:
             -- NULL when the pitcher has no history in this count
             sum(u.usage * l.expected_run_value) / nullif(sum(u.usage), 0)
               AS usual_expected_run_value,
+            {usual_probabilities},
             sum(u.usage) AS usual_share_covered,
             bool_or(u.usual_by_exact_count) AS usual_by_exact_count
           FROM option_info i
@@ -254,6 +261,7 @@ def main(argv: list[str] | None = None) -> None:
           usual.usual_expected_run_value,
           usual.usual_share_covered,
           usual.usual_by_exact_count,
+          {usual_p_columns},
           o.expected_run_value - usual.usual_expected_run_value AS vs_usual,
           zl.location, zl.grid_x, zl.grid_y,
           CASE

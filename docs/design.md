@@ -269,12 +269,10 @@ Free Edition serverless compute.
 
 Roughly in order of value:
 
-1. **Plate-appearance simulator and matchup rankings.** Step through counts with the
-   outcome models under two policies, his usual mix and the recommended plan. That gives
-   strikeout and walk rates and runs per plate appearance for each pitcher against each
-   hitter, then reliever tiers for each three-batter part of the order, and starters by
-   time through the order. It reuses the landing-spot scores the recommender already
-   produces.
+1. **Matchup rankings in the report.** The [simulator](simulator.md) now gives runs, K%
+   and BB% per pitcher × batter. Still to do: a dashboard page, reliever tiers for each
+   three-batter part of the order, starters by time through the order, and widening the
+   compressed spread between pitchers.
 2. **Production deploy and scheduling.** Deploy `prod`, backfill, and schedule ingest →
    features → recommender before each series, with `register_recommender` daily in season.
 3. **Similar hitters** (Vector Search, which allows one endpoint on Free Edition). Back up

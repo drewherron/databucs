@@ -96,6 +96,15 @@ def test_scenarios_are_valid_states():
         assert len(s.base_state) == 3
 
 
+def test_scenarios_cover_every_count_where_the_simulator_starts():
+    counts = {
+        (s.balls, s.strikes)
+        for s in options.SCENARIOS
+        if (s.outs, s.base_state) == (options.SIMULATION_OUTS, options.SIMULATION_BASE_STATE)
+    }
+    assert counts == {(b, s) for b in range(4) for s in range(3)}
+
+
 def test_count_group_sql_names_every_group():
     sql = inputs.count_group_sql("o.balls", "o.strikes")
     assert "o.balls > o.strikes" in sql and "o.strikes = 2" in sql

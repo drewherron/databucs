@@ -1,6 +1,8 @@
 # Score every Pirates pitcher's pitch options (pitch type x zone) against an opponent's
 # batters in a set of game scenarios, with the @champion outcome models. Writes
-# <ml schema>.pitch_option_scores, replacing that series' rows. See docs/recommender.md.
+# <ml schema>.pitch_option_scores, replacing that series' rows, then simulates each pitcher
+# against each batter a plate appearance at a time into <ml schema>.matchup_simulations.
+# See docs/recommender.md and docs/simulator.md.
 #
 # With no parameters it targets the next Pirates series within max_days_ahead, or, if
 # there is none (the offseason), a demo on the last series played, using only data from
@@ -48,6 +50,18 @@ resources:
               - --lineup={{job.parameters.lineup}}
               - --pitchers={{job.parameters.pitchers}}
               - --max-days-ahead={{job.parameters.max_days_ahead}}
+        - task_key: simulate_matchups
+          depends_on:
+            - task_key: recommend_pitches
+          environment_key: scoring
+          max_retries: 0
+          python_wheel_task:
+            package_name: databucs
+            entry_point: simulate-matchups
+            parameters:
+              - --catalog=${var.catalog}
+              - --gold-schema=${resources.schemas.gold.name}
+              - --ml-schema=${resources.schemas.ml.name}
       environments:
         - environment_key: scoring
           spec:
