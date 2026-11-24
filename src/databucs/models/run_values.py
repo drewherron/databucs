@@ -64,22 +64,40 @@ CASE
 END
 """
 
-# Probability of each result as a product of model outputs. `p.<model>.<class>` refers to
-# the prediction struct from each model.
-RESULT_PROBABILITY_SQL = {
-    "ball": "p.swing.p_take * p.take_outcome.p_ball",
-    "called_strike": "p.swing.p_take * p.take_outcome.p_called_strike",
-    "hit_by_pitch": "p.swing.p_take * p.take_outcome.p_hit_by_pitch",
-    "whiff": "p.swing.p_swing * p.whiff.p_whiff",
-    "foul": "p.swing.p_swing * p.whiff.p_contact * p.contact_outcome.p_foul",
+# Each result's path down the outcome tree: (model, class) steps whose probabilities
+# multiply to the result's probability
+_IN_PLAY = [("swing", "swing"), ("whiff", "contact"), ("contact_outcome", "in_play")]
+RESULT_PATHS: dict[str, list[tuple[str, str]]] = {
+    "ball": [("swing", "take"), ("take_outcome", "ball")],
+    "called_strike": [("swing", "take"), ("take_outcome", "called_strike")],
+    "hit_by_pitch": [("swing", "take"), ("take_outcome", "hit_by_pitch")],
+    "whiff": [("swing", "swing"), ("whiff", "whiff")],
+    "foul": [("swing", "swing"), ("whiff", "contact"), ("contact_outcome", "foul")],
     **{
-        result: (
-            "p.swing.p_swing * p.whiff.p_contact * p.contact_outcome.p_in_play"
-            f" * p.in_play_outcome.p_{result}"
-        )
+        result: [*_IN_PLAY, ("in_play_outcome", result)]
         for result in ("out", "single", "double", "triple", "home_run")
     },
 }
+
+# The same as SQL: `p.<model>.p_<class>` refers to each model's prediction struct
+RESULT_PROBABILITY_SQL = {
+    result: " * ".join(f"p.{model}.p_{cls}" for model, cls in path)
+    for result, path in RESULT_PATHS.items()
+}
+
+
+def result_probabilities(predictions: dict) -> dict:
+    """Each result's probability from the models' class probabilities, as arrays.
+
+    `predictions` maps model name to a frame (or dict) with one p_<class> column each.
+    """
+    out = {}
+    for result, path in RESULT_PATHS.items():
+        probability = 1.0
+        for model, cls in path:
+            probability = probability * predictions[model][f"p_{cls}"]
+        out[result] = probability
+    return out
 
 
 def run_values_sql(fact_pitch: str, seasons: list[int]) -> str:

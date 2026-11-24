@@ -299,3 +299,25 @@ def test_backtest_summary_mean_and_standard_error():
     [row] = backtest.summarize(folds)
     assert row["pitches"] == 40 and row["slope"] == pytest.approx(1.0)
     assert row["slope_se"] == pytest.approx(folds["slope"].std() / 2)
+
+
+def test_result_probabilities_in_python_match_the_sql_paths():
+    from databucs.models.run_values import RESULTS, result_probabilities
+
+    predictions = {
+        "swing": {"p_take": 0.55, "p_swing": 0.45},
+        "take_outcome": {"p_ball": 0.6, "p_called_strike": 0.39, "p_hit_by_pitch": 0.01},
+        "whiff": {"p_contact": 0.75, "p_whiff": 0.25},
+        "contact_outcome": {"p_foul": 0.5, "p_in_play": 0.5},
+        "in_play_outcome": {
+            "p_out": 0.68,
+            "p_single": 0.2,
+            "p_double": 0.07,
+            "p_triple": 0.01,
+            "p_home_run": 0.04,
+        },
+    }
+    probs = result_probabilities(predictions)
+    assert list(probs) == RESULTS
+    assert sum(probs.values()) == pytest.approx(1.0)
+    assert probs["foul"] == pytest.approx(0.45 * 0.75 * 0.5)

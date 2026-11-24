@@ -239,7 +239,10 @@ never trained on 2026.
 
 ## Known limitations
 
-- **Miss model:** one league-wide miss size for every pitcher and pitch type. Real command
+- **Miss model:** one league-wide miss size for every pitcher and pitch type. For pitchers
+  with better command than that, the usual mix can beat every aimed option. In the
+  Detroit demo, the best option is worse than the usual mix in 0.5–7% of situations,
+  concentrated in a few pitchers. See [serving.md](serving.md). Real command
   differs, both by pitcher and by pitch (breaking balls miss more). A pitcher-specific
   estimate needs intended targets, which public data doesn't have.
 - **Selection bias:** the models learn from pitches pitchers chose to throw. See the

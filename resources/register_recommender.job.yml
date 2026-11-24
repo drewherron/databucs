@@ -1,0 +1,45 @@
+# Build the real-time pitch recommender from a dated feature snapshot and the @champion
+# outcome models, check it against the batch table, register it as
+# <ml schema>.pitch_recommender and serve it (src/databucs/jobs/register_recommender.py).
+# Run it to refresh the snapshot: daily in season, or before a series.
+#
+#   databricks bundle run register_recommender
+#   databricks bundle run register_recommender --params as_of_date=2026-09-25   # matches the demo
+resources:
+  jobs:
+    register_recommender:
+      name: register_recommender
+      tags:
+        project: databucs
+      performance_target: STANDARD
+      max_concurrent_runs: 1
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+      parameters:
+        - name: as_of_date
+          default: "" # today
+      tasks:
+        - task_key: register_recommender
+          environment_key: serving
+          max_retries: 0
+          timeout_seconds: 5400 # building a new endpoint container can take a while
+          python_wheel_task:
+            package_name: databucs
+            entry_point: register-recommender
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver-schema=${resources.schemas.silver.name}
+              - --gold-schema=${resources.schemas.gold.name}
+              - --ml-schema=${resources.schemas.ml.name}
+              - --experiment=${resources.experiments.outcome_models.name}
+              - --endpoint-name=pitch-recommender-${bundle.target}
+              - --as-of-date={{job.parameters.as_of_date}}
+      environments:
+        - environment_key: serving
+          spec:
+            environment_version: "4" # serverless environment; Python 3.12, matching local dev
+            dependencies:
+              - ../dist/*.whl
+              - lightgbm==4.7.0
+              - mlflow==3.18.0

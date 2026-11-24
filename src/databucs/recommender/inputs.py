@@ -37,7 +37,7 @@ MIN_COUNT_PITCHES = 40
 # are already arm side positive, like the model's.
 HYPOTHETICAL_PITCH = {
     "pitch_type": "a.pitch_type",
-    "pitch_group": "g.pitch_group",
+    "pitch_group": "a.pitch_group",
     "pitcher_throws": "m.pitcher_throws",
     "batter_stands": "m.batter_stands",
     "is_in_zone": "z.zone <= 9",
@@ -232,6 +232,64 @@ LEFT JOIN (
 """
 
 
+def sides_sql(fact_pitch: str, target: Target) -> str:
+    """The side each batter hits from against each pitcher hand (switch hitters change
+    sides), over the trailing HISTORY_DAYS."""
+    return f"""
+SELECT batter_id, pitcher_throws, mode(batter_stands) AS batter_stands
+FROM {fact_pitch}
+WHERE {_history(target)}
+GROUP BY ALL
+"""
+
+
+def pitchers_sql(fact_pitch: str, players_table: str, target: Target) -> str:
+    """Names and throwing hands of the pitchers in the temp view target_pitchers."""
+    return f"""
+SELECT t.pitcher_id, t.is_probable_starter, pl.full_name AS pitcher_name,
+  coalesce(h.pitcher_throws, pl.throws) AS pitcher_throws
+FROM target_pitchers t
+LEFT JOIN {players_table} pl ON pl.player_id = t.pitcher_id
+LEFT JOIN (
+  SELECT pitcher_id, mode(pitcher_throws) AS pitcher_throws
+  FROM {fact_pitch}
+  WHERE {_history(target)}
+  GROUP BY ALL
+) h USING (pitcher_id)
+"""
+
+
+def arsenal_sql(arsenal_table: str, fact_pitch: str, target: Target) -> str:
+    """Each pitcher's latest arsenal row per pitch type, limited to pitches he actually uses,
+    with the pitch's group and name."""
+    return f"""
+SELECT a.*, g.pitch_group, g.pitch_name
+FROM {arsenal_table} a
+JOIN (
+  SELECT pitcher_id, max(as_of_date) AS as_of_date
+  FROM {arsenal_table}
+  WHERE as_of_date <= DATE'{target.series_start}'
+  GROUP BY pitcher_id
+) latest USING (pitcher_id, as_of_date)
+JOIN (
+  SELECT pitch_type, mode(pitch_group) AS pitch_group, mode(pitch_name) AS pitch_name
+  FROM {fact_pitch}
+  WHERE pitch_type IS NOT NULL
+  GROUP BY pitch_type
+) g ON g.pitch_type = a.pitch_type
+WHERE a.usage_rate >= {MIN_USAGE_RATE} AND a.pitches_thrown >= {MIN_PITCHES_THROWN}
+"""
+
+
+def batter_stands_sql(bats: str, pitcher_throws: str, observed: str) -> str:
+    """The side a batter hits from against a pitcher hand: as observed, else his listed
+    side, with switch hitters on the opposite side of the pitcher."""
+    return (
+        f"coalesce({observed}, CASE WHEN {bats} = 'S' "
+        f"THEN if({pitcher_throws} = 'R', 'L', 'R') ELSE {bats} END)"
+    )
+
+
 def request_rows_sql(
     fact_pitch: str, players_table: str, arsenal_table: str, target: Target
 ) -> str:
@@ -240,67 +298,29 @@ def request_rows_sql(
     and landing_points."""
     pitch = ",\n  ".join(f"{expr} AS {name}" for name, expr in HYPOTHETICAL_PITCH.items())
     state = ",\n  ".join(f"s.{name}" for name in features.STATE_COLUMNS)
-    history = _history(target)
+    stands = batter_stands_sql("b.bats", "p.pitcher_throws", "s.batter_stands")
     return f"""
-WITH -- The side each batter hits from against each pitcher hand (switch hitters change sides)
-sides AS (
-  SELECT batter_id, pitcher_throws, mode(batter_stands) AS batter_stands
-  FROM {fact_pitch}
-  WHERE {history}
-  GROUP BY ALL
-),
-pitchers AS (
-  SELECT t.pitcher_id, t.is_probable_starter, pl.full_name AS pitcher_name,
-    coalesce(h.pitcher_throws, pl.throws) AS pitcher_throws
-  FROM target_pitchers t
-  LEFT JOIN {players_table} pl ON pl.player_id = t.pitcher_id
-  LEFT JOIN (
-    SELECT pitcher_id, mode(pitcher_throws) AS pitcher_throws
-    FROM {fact_pitch}
-    WHERE {history}
-    GROUP BY ALL
-  ) h USING (pitcher_id)
-),
+WITH sides AS ({sides_sql(fact_pitch, target)}),
+pitchers AS ({pitchers_sql(fact_pitch, players_table, target)}),
 matchups AS (
   SELECT p.*, b.batter_id, b.lineup_spot, b.batter_name, b.sz_top, b.sz_bot,
-    coalesce(
-      s.batter_stands,
-      CASE WHEN b.bats = 'S' THEN if(p.pitcher_throws = 'R', 'L', 'R') ELSE b.bats END
-    ) AS batter_stands
+    {stands} AS batter_stands
   FROM pitchers p
   CROSS JOIN target_batters b
   LEFT JOIN sides s ON s.batter_id = b.batter_id AND s.pitcher_throws = p.pitcher_throws
 ),
--- Each pitcher's latest arsenal, limited to pitches they actually use
-arsenal AS (
-  SELECT a.*
-  FROM {arsenal_table} a
-  JOIN (
-    SELECT pitcher_id, max(as_of_date) AS as_of_date
-    FROM {arsenal_table}
-    WHERE as_of_date <= DATE'{target.series_start}'
-    GROUP BY pitcher_id
-  ) latest USING (pitcher_id, as_of_date)
-  WHERE a.usage_rate >= {MIN_USAGE_RATE} AND a.pitches_thrown >= {MIN_PITCHES_THROWN}
-),
-groups AS (
-  SELECT pitch_type, mode(pitch_group) AS pitch_group, mode(pitch_name) AS pitch_name
-  FROM {fact_pitch}
-  WHERE pitch_type IS NOT NULL
-  GROUP BY pitch_type
-)
+arsenal AS ({arsenal_sql(arsenal_table, fact_pitch, target)})
 SELECT
   m.pitcher_id, m.pitcher_name, m.is_probable_starter,
   m.batter_id, m.batter_name, m.lineup_spot,
   s.scenario, z.land,
   a.pitches_thrown AS pitcher_pitches_thrown, a.usage_rate AS pitch_usage_rate,
-  g.pitch_name,
+  a.pitch_name,
   DATE'{target.series_start}' AS game_date,
   {pitch},
   {state}
 FROM matchups m
 JOIN arsenal a USING (pitcher_id)
-JOIN groups g ON g.pitch_type = a.pitch_type
 CROSS JOIN scenarios s
 CROSS JOIN landing_points z
 """
