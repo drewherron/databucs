@@ -177,7 +177,7 @@ run values from the training seasons only, so the test season can't leak in.
   0.4299 when it stopped early at 5,734. `promote=if_better` treats any gain as real, so a
   margin, or a comparison over several seeds, would make promotion more robust.
 - **Selection bias:** the training data only has pitches that were actually thrown, so the
-  models learn how pitches perform when pitchers chose to throw them. See the plan's notes
-  on selection bias; a write-up belongs in `docs/limitations.md`.
+  models learn how pitches perform when pitchers chose to throw them. See the notes
+  on selection bias in [design.md](design.md#limitations).
 - **Hit-by-pitch rate:** HBPs are under-predicted for 2026 (0.21% vs 0.30%). The 2026 rate
   may simply be higher than in the training seasons.
