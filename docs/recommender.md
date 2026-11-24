@@ -134,7 +134,8 @@ right-handed batter and "up and away" to a left-handed one.
 ## Dashboard: Series prep
 
 An AI/BI dashboard (`resources/series_prep.dashboard.yml`,
-`src/dashboards/series_prep.lvdash.json`) reads `pitch_option_scores`. It's deployed with
+`src/dashboards/series_prep.lvdash.json`) reads `pitch_option_scores` and
+`matchup_simulations`. It's deployed with
 the bundle, and its datasets point at the target's ml schema (`dataset_catalog` /
 `dataset_schema`). It answers the questions in
 [requirements_pitching_coach.md](requirements_pitching_coach.md):
@@ -146,9 +147,15 @@ the bundle, and its datasets point at the target's ml schema (`dataset_catalog` 
   - a location chart for one situation: the best pitch aimed at each spot, from the
     hitter's point of view
   - his three most common choices per situation, and how they rate
+- **Matchup rankings** (pick the series), from the [simulator](simulator.md):
+  - each pitcher's runs saved per 100 plate appearances against the whole lineup, with
+    his usual mix
+  - how those plate appearances end (K%, BB%, HR%, pitches per plate appearance), and
+    how much more the pitch plan would save
+  - each pitcher against each hitter, in lineup order
 - **Staff matchups** (pick the series and hitter):
   - each Pirates pitcher's usual mix against the hitter, in runs per 100 pitches better
-    than the staff average, by situation and overall
+    than the staff average, by situation (all 14 scenarios, numbered in order) and overall
 
 The hitter and pitcher filters default to Riley Greene and Paul Skenes for the demo. A
 later series needs new defaults, or none.

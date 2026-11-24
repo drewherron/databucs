@@ -14,7 +14,7 @@ An end-to-end data and ML platform on Databricks that produces advance-scouting 
 - [x] Series prep AI/BI dashboard ([docs/requirements_pitching_coach.md](docs/requirements_pitching_coach.md))
 - [x] Real-time recommender on Model Serving ([docs/serving.md](docs/serving.md))
 - [x] Plate-appearance simulator ([docs/simulator.md](docs/simulator.md))
-- [ ] Pirates pitcher matchup rankings in the report
+- [x] Pirates pitcher matchup rankings in the report (the dashboard's Matchup rankings page)
 
 How it works and why, with strengths, limitations and future additions: [docs/design.md](docs/design.md).
 

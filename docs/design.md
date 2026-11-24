@@ -269,10 +269,10 @@ Free Edition serverless compute.
 
 Roughly in order of value:
 
-1. **Matchup rankings in the report.** The [simulator](simulator.md) now gives runs, K%
-   and BB% per pitcher × batter. Still to do: a dashboard page, reliever tiers for each
-   three-batter part of the order, starters by time through the order, and widening the
-   compressed spread between pitchers.
+1. **Better matchup rankings.** The [simulator](simulator.md) and the dashboard's
+   Matchup rankings page give runs, K% and BB% per pitcher × hitter. Next: widen the
+   compressed spread between pitchers (a pitcher's own past results), reliever tiers for
+   each three-batter part of the order, and starters by time through the order.
 2. **Production deploy and scheduling.** Deploy `prod`, backfill, and schedule ingest →
    features → recommender before each series, with `register_recommender` daily in season.
 3. **Similar hitters** (Vector Search, which allows one endpoint on Free Edition). Back up

@@ -25,7 +25,21 @@
       "name": "ds_staff",
       "displayName": "Staff matchups",
       "queryLines": [
-        "WITH s AS (SELECT DISTINCT series_start, opponent_id, opponent_name, batter_id, batter_name, pitcher_id, pitcher_name, is_probable_starter, scenario, scenario_order, scenario_label, usual_expected_run_value FROM pitch_option_scores) SELECT concat(opponent_name, ', ', date_format(series_start, 'MMM d, yyyy')) AS series, batter_name AS batter, concat(pitcher_name, if(is_probable_starter, ' (probable starter)', '')) AS pitcher, CASE scenario WHEN 'first_pitch' THEN '1 First pitch' WHEN 'ahead_0_2' THEN '2 Ahead 0-2' WHEN 'ahead_1_2' THEN '3 Ahead 1-2' WHEN 'behind_2_0' THEN '4 Behind 2-0' WHEN 'behind_3_1' THEN '5 Behind 3-1' WHEN 'full_count' THEN '6 Full count' WHEN 'need_strikeout' THEN '7 Runner on 3rd' WHEN 'risp_two_outs' THEN '8 RISP, 2 outs' END AS situation, round(100 * (avg(usual_expected_run_value) OVER (PARTITION BY series_start, opponent_id, batter_id, scenario) - usual_expected_run_value), 2) AS vs_staff FROM s "
+        "WITH s AS (SELECT DISTINCT series_start, opponent_id, opponent_name, batter_id, batter_name, pitcher_id, pitcher_name, is_probable_starter, scenario, scenario_order, scenario_label, usual_expected_run_value FROM pitch_option_scores) SELECT concat(opponent_name, ', ', date_format(series_start, 'MMM d, yyyy')) AS series, batter_name AS batter, concat(pitcher_name, if(is_probable_starter, ' (probable starter)', '')) AS pitcher, concat(lpad(scenario_order, 2, '0'), ' ', upper(substr(regexp_replace(regexp_replace(scenario_label, ', bases empty(, one out)?$', ''), '^Pitcher ', ''), 1, 1)), substr(regexp_replace(regexp_replace(scenario_label, ', bases empty(, one out)?$', ''), '^Pitcher ', ''), 2)) AS situation, round(100 * (avg(usual_expected_run_value) OVER (PARTITION BY series_start, opponent_id, batter_id, scenario) - usual_expected_run_value), 2) AS vs_staff FROM s "
+      ]
+    },
+    {
+      "name": "ds_rank",
+      "displayName": "Matchup rankings by pitcher",
+      "queryLines": [
+        "WITH m AS (SELECT series_start, opponent_id, opponent_name, pitcher_id, pitcher_name, is_probable_starter, batter_id, batter_name, lineup_spot, max(CASE WHEN policy = 'usual' THEN run_value END) AS usual_rv, max(CASE WHEN policy = 'recommended' THEN run_value END) AS recommended_rv, max(CASE WHEN policy = 'usual' THEN p_strikeout END) AS k_rate, max(CASE WHEN policy = 'usual' THEN p_walk END) AS bb_rate, max(CASE WHEN policy = 'usual' THEN p_home_run END) AS hr_rate, max(CASE WHEN policy = 'usual' THEN pitches END) AS pitches FROM matchup_simulations GROUP BY ALL) SELECT concat(opponent_name, ', ', date_format(series_start, 'MMM d, yyyy')) AS series, concat(pitcher_name, if(is_probable_starter, ' (probable starter)', '')) AS pitcher, round(-100 * avg(usual_rv), 2) AS runs_saved, avg(k_rate) AS k_rate, avg(bb_rate) AS bb_rate, avg(hr_rate) AS hr_rate, round(avg(pitches), 2) AS pitches_per_pa, round(100 * avg(usual_rv - recommended_rv), 2) AS gain_recommended FROM m GROUP BY series_start, opponent_id, opponent_name, pitcher_id, pitcher_name, is_probable_starter "
+      ]
+    },
+    {
+      "name": "ds_matchups",
+      "displayName": "Matchups by pitcher and hitter",
+      "queryLines": [
+        "WITH m AS (SELECT series_start, opponent_id, opponent_name, pitcher_id, pitcher_name, is_probable_starter, batter_id, batter_name, lineup_spot, max(CASE WHEN policy = 'usual' THEN run_value END) AS usual_rv, max(CASE WHEN policy = 'recommended' THEN run_value END) AS recommended_rv, max(CASE WHEN policy = 'usual' THEN p_strikeout END) AS k_rate, max(CASE WHEN policy = 'usual' THEN p_walk END) AS bb_rate, max(CASE WHEN policy = 'usual' THEN p_home_run END) AS hr_rate, max(CASE WHEN policy = 'usual' THEN pitches END) AS pitches FROM matchup_simulations GROUP BY ALL) SELECT concat(opponent_name, ', ', date_format(series_start, 'MMM d, yyyy')) AS series, concat(pitcher_name, if(is_probable_starter, ' (probable starter)', '')) AS pitcher, concat(lpad(lineup_spot, 2, '0'), ' ', batter_name) AS batter, round(-100 * usual_rv, 1) AS runs_saved, k_rate, bb_rate FROM m "
       ]
     }
   ],
@@ -731,6 +745,407 @@
             "y": 14,
             "width": 12,
             "height": 8
+          }
+        }
+      ]
+    },
+    {
+      "name": "rankings",
+      "displayName": "Matchup rankings",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "rank-header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Matchup rankings: who to use against this lineup\n",
+                "\n",
+                "Each Pirates pitcher against each hitter in the projected lineup, played out a whole plate appearance at a time with his usual pitch mix (one out, bases empty). **Runs saved** is per 100 plate appearances compared with an average matchup; higher is better for the Pirates. **Gain from the plan** is how many more the pitch plan's top option at every count would save, an upper bound. *The models pull pitchers toward the average (real strikeout rates vary more than these), so read the order more than the sizes.*"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "f-rank-series",
+            "queries": [
+              {
+                "name": "f-rank-series_ds_rank",
+                "query": {
+                  "datasetName": "ds_rank",
+                  "fields": [
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f-rank-series_ds_matchups",
+                "query": {
+                  "datasetName": "ds_matchups",
+                  "fields": [
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "series",
+                    "displayName": "Series",
+                    "queryName": "f-rank-series_ds_rank"
+                  },
+                  {
+                    "fieldName": "series",
+                    "displayName": "Series",
+                    "queryName": "f-rank-series_ds_matchups"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Series"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "rank-bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_rank",
+                  "fields": [
+                    {
+                      "name": "pitcher",
+                      "expression": "`pitcher`"
+                    },
+                    {
+                      "name": "sum(runs_saved)",
+                      "expression": "SUM(`runs_saved`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(runs_saved)",
+                  "displayName": "Runs saved per 100 PA",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "pitcher",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Against the whole lineup",
+                "showDescription": true,
+                "description": "Average over the lineup's hitters, each counted the same."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 5,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "rank-table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_rank",
+                  "fields": [
+                    {
+                      "name": "pitcher",
+                      "expression": "`pitcher`"
+                    },
+                    {
+                      "name": "runs_saved",
+                      "expression": "`runs_saved`"
+                    },
+                    {
+                      "name": "k_rate",
+                      "expression": "`k_rate`"
+                    },
+                    {
+                      "name": "bb_rate",
+                      "expression": "`bb_rate`"
+                    },
+                    {
+                      "name": "hr_rate",
+                      "expression": "`hr_rate`"
+                    },
+                    {
+                      "name": "pitches_per_pa",
+                      "expression": "`pitches_per_pa`"
+                    },
+                    {
+                      "name": "gain_recommended",
+                      "expression": "`gain_recommended`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "pitcher",
+                    "displayName": "Pitcher"
+                  },
+                  {
+                    "fieldName": "runs_saved",
+                    "displayName": "Runs saved",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    },
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "1"
+                            },
+                            "operator": ">="
+                          },
+                          "backgroundColor": {
+                            "hex": "#BFE6DF"
+                          }
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "-1"
+                            },
+                            "operator": "<="
+                          },
+                          "backgroundColor": {
+                            "hex": "#F6C7B8"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fieldName": "k_rate",
+                    "displayName": "K%",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "bb_rate",
+                    "displayName": "BB%",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "hr_rate",
+                    "displayName": "HR%",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "pitches_per_pa",
+                    "displayName": "Pitches/PA",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "gain_recommended",
+                    "displayName": "Gain from the plan",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "How the plate appearances end",
+                "showDescription": true,
+                "description": "With his usual mix, averaged over the lineup. Gain from the plan is in runs per 100 PA."
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 5,
+            "width": 7,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "rank-heatmap",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_matchups",
+                  "fields": [
+                    {
+                      "name": "batter",
+                      "expression": "`batter`"
+                    },
+                    {
+                      "name": "pitcher",
+                      "expression": "`pitcher`"
+                    },
+                    {
+                      "name": "avg(runs_saved)",
+                      "expression": "AVG(`runs_saved`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "batter",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "alphabetical"
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "y": {
+                  "fieldName": "pitcher",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "alphabetical"
+                    }
+                  },
+                  "axis": {
+                    "hideTitle": true
+                  }
+                },
+                "color": {
+                  "fieldName": "avg(runs_saved)",
+                  "displayName": "Runs saved per 100 PA",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#E8704E",
+                        "end": "#2A9D8F"
+                      }
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Each pitcher against each hitter",
+                "showDescription": true,
+                "description": "Runs saved per 100 plate appearances with his usual mix. Hitters in projected lineup order."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 12,
+            "height": 12
           }
         }
       ]

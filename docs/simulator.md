@@ -97,6 +97,13 @@ What it shows:
 - Wilder relievers (Soto, Ramírez, Doval, Curtis) get the biggest gains: their usual mix
   walks 12–14% of these batters, and the recommended options throw more strikes.
 
+## Dashboard
+
+The Series prep dashboard's **Matchup rankings** page shows these numbers: pitchers ranked
+by runs saved against the lineup (the negative of `run_value`, so higher is better for the
+Pirates), a table of how their plate appearances end, and a pitcher × hitter grid. See
+[recommender.md](recommender.md#dashboard-series-prep).
+
 ## Limitations
 
 - **Compressed talent:** see above. Rankings are better read as an order than as sizes.

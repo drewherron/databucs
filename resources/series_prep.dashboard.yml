@@ -1,7 +1,8 @@
-# AI/BI dashboard over <ml schema>.pitch_option_scores (written by recommend_pitches): a
-# plan per opposing batter and Pirates pitcher, and a staff overview per batter. See
-# docs/requirements_pitching_coach.md for what it must answer and docs/recommender.md for
-# the numbers. Dataset queries use bare table names; dataset_catalog / dataset_schema point
+# AI/BI dashboard over <ml schema>.pitch_option_scores and matchup_simulations (both
+# written by the recommend_pitches job): a plan per opposing batter and Pirates pitcher,
+# matchup rankings against the lineup, and a staff overview per batter. See
+# docs/requirements_pitching_coach.md for what it must answer, and docs/recommender.md and
+# docs/simulator.md for the numbers. Dataset queries use bare table names; dataset_catalog / dataset_schema point
 # them at the target's ml schema.
 resources:
   dashboards:
