@@ -20,12 +20,16 @@ How it works and why, with strengths, limitations and future additions: [docs/de
 ## Layout
 ```
 databricks.yml        # Asset Bundle config (dev/prod targets, wheel build)
-resources/            # schemas, volume, jobs, pipeline
+resources/            # schemas, volume, jobs, pipeline, experiments, dashboard
 src/databucs/
   ingestion/          # Savant + MLB Stats API clients, landing-file writer
+  features/           # batter profile and pitcher arsenal feature tables
+  models/             # outcome models, run values, scoring, evaluation, backtest
+  recommender/        # pitch options, batch inputs, real-time engine and pyfunc
   jobs/               # job entry points
 src/pipelines/        # Lakeflow declarative pipeline (SQL): bronze, silver, gold
-docs/                 # data model
+src/dashboards/       # AI/BI series prep dashboard
+docs/                 # data model, features, models, recommender, serving, design
 tests/
 .github/workflows/    # CI: lint + unit tests
 ```
