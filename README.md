@@ -8,6 +8,14 @@ An end-to-end data and ML platform on Databricks that produces advance-scouting 
 - [x] Project setup: Asset Bundle (dev/prod), Unity Catalog schemas, CI
 - [x] Statcast and MLB Stats API ingestion into bronze
 - [x] Silver/gold data model ([docs/data_model.md](docs/data_model.md))
+- [x] Feature tables in Unity Catalog with point-in-time lookups ([docs/features.md](docs/features.md))
+- [x] Pitch outcome models and expected run value ([docs/outcome_models.md](docs/outcome_models.md))
+- [x] Batch pitch recommender for the next series, with a within-situation backtest ([docs/recommender.md](docs/recommender.md))
+- [x] Series prep AI/BI dashboard ([docs/requirements_pitching_coach.md](docs/requirements_pitching_coach.md))
+- [x] Real-time recommender on Model Serving ([docs/serving.md](docs/serving.md))
+- [ ] Pirates pitcher matchup rankings
+
+How it works and why, with strengths, limitations and future additions: [docs/design.md](docs/design.md).
 
 ## Layout
 ```
