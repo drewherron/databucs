@@ -1,0 +1,48 @@
+# Forward-in-time test of the plate-appearance simulator: score and simulate the busiest
+# pitchers as of a date, then compare their simulated K% and BB% with what they did after
+# it. Logs to the outcome_models MLflow experiment. Writes forward_test_option_scores and
+# forward_test_simulations (team and opponent id 0), not the dashboard's tables. See
+# docs/simulator.md.
+#
+#   databricks bundle run forward_test
+#   databricks bundle run forward_test --params model_alias=challenger
+resources:
+  jobs:
+    forward_test:
+      name: forward_test
+      tags:
+        project: databucs
+      performance_target: STANDARD
+      max_concurrent_runs: 1
+      email_notifications:
+        on_failure:
+          - ${workspace.current_user.userName}
+      parameters:
+        - name: as_of
+          default: "2026-07-01"
+        - name: model_alias
+          default: champion
+      tasks:
+        - task_key: forward_test
+          environment_key: scoring
+          max_retries: 0
+          python_wheel_task:
+            package_name: databucs
+            entry_point: forward-test
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver-schema=${resources.schemas.silver.name}
+              - --gold-schema=${resources.schemas.gold.name}
+              - --ml-schema=${resources.schemas.ml.name}
+              - --experiment=${resources.experiments.outcome_models.name}
+              - --as-of={{job.parameters.as_of}}
+              - --model-alias={{job.parameters.model_alias}}
+      environments:
+        - environment_key: scoring
+          spec:
+            environment_version: "4" # serverless environment; Python 3.12, matching local dev
+            dependencies:
+              - ../dist/*.whl
+              - databricks-feature-engineering==0.18.4
+              - lightgbm==4.7.0
+              - mlflow==3.18.0

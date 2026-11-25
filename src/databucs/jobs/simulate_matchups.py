@@ -42,23 +42,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[2023, 2024, 2025],
         help="Seasons to average run values over (as in recommend_pitches).",
     )
+    parser.add_argument(
+        "--options-table", default=OPTIONS_TABLE, help="recommend_pitches output, in ml."
+    )
+    parser.add_argument("--table", default=TABLE, help="Output table in the ml schema.")
     return parser.parse_args(argv)
 
 
 def simulation_scenarios() -> dict[str, tuple[int, int]]:
     """Scenario name -> count, for the scenarios in the simulator's starting state."""
-    return {
-        s.name: (s.balls, s.strikes)
-        for s in options.SCENARIOS
-        if (s.outs, s.base_state) == (options.SIMULATION_OUTS, options.SIMULATION_BASE_STATE)
-    }
+    return {s.name: (s.balls, s.strikes) for s in options.SCENARIOS if options.in_simulation(s)}
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     ml = f"{args.catalog}.{args.ml_schema}"
     fact_pitch = f"`{args.catalog}`.`{args.gold_schema}`.fact_pitch"
-    options_table = f"{ml}.{OPTIONS_TABLE}"
+    options_table = f"{ml}.{args.options_table}"
 
     import pandas as pd
     from pyspark.sql import SparkSession
@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> None:
     out["outs"], out["base_state"] = options.SIMULATION_OUTS, options.SIMULATION_BASE_STATE
 
     # 4. Write, replacing this series
-    table = f"{ml}.{TABLE}"
+    table = f"{ml}.{args.table}"
     frame = spark.createDataFrame(out).selectExpr("*", "current_timestamp() AS simulated_at")
     writer = frame.write.format("delta")
     if spark.catalog.tableExists(table):

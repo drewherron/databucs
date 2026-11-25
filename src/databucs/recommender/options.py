@@ -215,6 +215,11 @@ SCENARIOS = [
 ]
 
 
+def in_simulation(scenario: Scenario) -> bool:
+    """Whether the plate-appearance simulator uses this scenario (its starting state)."""
+    return (scenario.outs, scenario.base_state) == (SIMULATION_OUTS, SIMULATION_BASE_STATE)
+
+
 # Tiers, relative to the pitcher's usual mix in the same situation (runs per pitch). The
 # report groups options this way instead of ranking options that are within noise of each
 # other. Judgment calls: half a run per 100 pitches better is "strong", a run per 100

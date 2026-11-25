@@ -33,7 +33,12 @@ from dataclasses import asdict
 from databucs.ingestion.dates import optional_date
 from databucs.jobs.train_outcome_model import parse_seasons
 from databucs.models.run_values import RESULTS
-from databucs.models.scoring import expected_value_sql, register_run_values, score_outcomes
+from databucs.models.scoring import (
+    CHAMPION_ALIAS,
+    expected_value_sql,
+    register_run_values,
+    score_outcomes,
+)
 from databucs.recommender import inputs, options
 
 TABLE = "pitch_option_scores"
@@ -67,6 +72,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=options.MISS_SD_FT,
         help="How far pitches miss where they're aimed: a normal spread, in feet.",
+    )
+    parser.add_argument("--table", default=TABLE, help="Output table in the ml schema.")
+    parser.add_argument(
+        "--model-alias", default=CHAMPION_ALIAS, help="Registry alias of the outcome models."
+    )
+    parser.add_argument(
+        "--simulation-only",
+        action="store_true",
+        help="Score only the simulator's scenarios (every count, bases empty, one out).",
     )
     return parser.parse_args(argv)
 
@@ -136,7 +150,11 @@ def main(argv: list[str] | None = None) -> None:
     batters = spark.sql(inputs.batters_sql(fact_pitch, players_table, target))
     batters.createOrReplaceTempView("target_batters")
     spark.createDataFrame(
-        [{**asdict(s), "scenario_order": i + 1} for i, s in enumerate(options.SCENARIOS)]
+        [
+            {**asdict(s), "scenario_order": i + 1}
+            for i, s in enumerate(options.SCENARIOS)
+            if not args.simulation_only or options.in_simulation(s)
+        ]
     ).withColumnRenamed("name", "scenario").withColumnRenamed(
         "description", "scenario_label"
     ).createOrReplaceTempView("scenarios")
@@ -164,7 +182,9 @@ def main(argv: list[str] | None = None) -> None:
     requests = spark.sql(inputs.request_rows_sql(fact_pitch, players_table, arsenal_table, target))
     requests.createOrReplaceTempView("requests")
     print(f"Scoring {requests.count()} hypothetical pitches")
-    score_outcomes(fe, requests, ml, inputs.LANDING_KEY).createOrReplaceTempView("scored")
+    score_outcomes(fe, requests, ml, inputs.LANDING_KEY, args.model_alias).createOrReplaceTempView(
+        "scored"
+    )
 
     register_run_values(spark, fact_pitch, args.run_value_seasons, "run_values_wide")
     probabilities, expected = expected_value_sql()
@@ -288,7 +308,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     # 5. Replace this series' rows
-    table = f"{ml}.{TABLE}"
+    table = f"{ml}.{args.table}"
     writer = result.write.format("delta")
     if spark.catalog.tableExists(table):
         # mergeSchema: new output columns are added rather than failing the write

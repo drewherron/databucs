@@ -97,6 +97,43 @@ What it shows:
 - Wilder relievers (Soto, Ramírez, Doval, Curtis) get the biggest gains: their usual mix
   walks 12–14% of these batters, and the recommended options throw more strikes.
 
+## Forward-in-time test
+
+Comparing the simulation with the same season's results can be passed by cheating: give
+the models a pitcher's own season results as a feature, and his simulated rates will match
+them without the model learning anything. The forward test can't be passed that way. It
+builds everything as of a date and scores what happens after it.
+
+`forward_test` job (`jobs/forward_test.py`, `models/forward_test.py`):
+- **As of 2026-07-01:** the 60 pitchers with the most plate appearances after the date,
+  among those with at least 150 on each side of it. A panel of the 9 hitters with the most
+  plate appearances before it.
+- **Scored and simulated** with `recommend_pitches` (the 12 simulator counts only) and
+  `simulate_matchups`, into `forward_test_option_scores` and `forward_test_simulations`, so
+  the dashboard's tables aren't touched. `model_alias` picks the outcome models, so a
+  challenger can take the same test.
+- **Compared** with each pitcher's K% and BB% from July 1 to the end of the season, and
+  logged to the `outcome_models` MLflow experiment.
+- **Two references:**
+  - *Naive:* his own rate before July 1, used as the forecast.
+  - *True spread:* the real rates' spread with the binomial noise of a few hundred plate
+    appearances removed. A perfect forecast would have this spread.
+
+Baseline, the current @champion models (60 pitchers):
+
+| | Correlation, simulated | Correlation, naive | Mean, simulated | Mean, real | Spread, simulated | Spread, real (true) |
+|---|---|---|---|---|---|---|
+| K% | 0.61 | 0.71 | 23.0 | 23.5 | 3.3 | 5.7 (5.3) |
+| BB% | 0.45 | 0.44 | 8.7 | 7.7 | 2.0 | 2.3 (1.8) |
+
+- **Strikeouts are where the models fall short.** They forecast worse than the naive rate
+  (0.61 vs 0.71), and their spread is about 60% of the true spread.
+- **Walks are fine.** The models match the naive forecast, and their spread is about right.
+  They run about 1 point high, partly because the hitter panel isn't the batters the
+  pitchers really faced.
+- **What a change has to do to count as an improvement:** raise the K% correlation and
+  spread without hurting BB%, the test-season accuracy or the within-situation backtest.
+
 ## Dashboard
 
 The Series prep dashboard's **Matchup rankings** page shows these numbers: pitchers ranked

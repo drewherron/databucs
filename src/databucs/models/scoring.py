@@ -29,8 +29,11 @@ CHAMPION_ALIAS = "champion"
 STATE_KEY = ["balls", "strikes", "outs", "base_state"]
 
 
-def score_outcomes(fe, df: DataFrame, ml: str, keys: list[str]) -> DataFrame:
-    """`keys` plus a struct column `p` with each @champion model's prediction struct.
+def score_outcomes(
+    fe, df: DataFrame, ml: str, keys: list[str], alias: str = CHAMPION_ALIAS
+) -> DataFrame:
+    """`keys` plus a struct column `p` with each model's prediction struct (the versions
+    with registry alias `alias`, @champion by default).
 
     `df` needs the models' inputs (features.LOOKUP_KEY_COLUMNS, PITCH_COLUMNS and
     STATE_COLUMNS) and `keys`, which must identify each row.
@@ -40,7 +43,7 @@ def score_outcomes(fe, df: DataFrame, ml: str, keys: list[str]) -> DataFrame:
     scored = df.select(*keys)
     for model in MODELS:
         prediction = fe.score_batch(
-            model_uri=f"models:/{ml}.outcome_{model.name}@{CHAMPION_ALIAS}",
+            model_uri=f"models:/{ml}.outcome_{model.name}@{alias}",
             df=df,
             result_type=prediction_struct_type(model.name),
         )

@@ -182,3 +182,46 @@ def test_simulate_matchups_needs_every_count():
     frame = frame[~((frame.balls == 3) & (frame.strikes == 0))]
     with pytest.raises(ValueError):
         simulate_matchups(frame, {c: np.zeros(len(RESULTS)) for c in COUNTS})
+
+
+def test_forward_test_summary():
+    import pandas as pd
+
+    from databucs.models import forward_test
+
+    df = pd.DataFrame(
+        {
+            "sim_k": [0.20, 0.25, 0.30],
+            "k_rate_before": [0.18, 0.26, 0.31],
+            "k_rate_after": [0.19, 0.24, 0.33],
+            "sim_bb": [0.08, 0.09, 0.10],
+            "bb_rate_before": [0.07, 0.10, 0.09],
+            "bb_rate_after": [0.08, 0.09, 0.11],
+            "pa_after": [300, 300, 300],
+        }
+    )
+    summary = forward_test.summarize(df).set_index("rate")
+    assert summary.loc["k", "corr_sim"] > 0.9
+    assert summary.loc["k", "pitchers"] == 3
+    # The true spread is below the observed one: some of it is noise
+    assert summary.loc["k", "sd_after_true"] < summary.loc["k", "sd_after"]
+
+
+def test_true_sd_is_zero_when_noise_explains_the_spread():
+    import pandas as pd
+
+    from databucs.models.forward_test import true_sd
+
+    assert true_sd(pd.Series([0.20, 0.22]), pd.Series([50, 50])) == 0.0
+
+
+def test_choose_pitchers_needs_both_sides_of_the_date():
+    import pandas as pd
+
+    from databucs.models.forward_test import choose_pitchers
+
+    outcomes = pd.DataFrame(
+        {"pitcher_id": [1, 2, 3], "pa_before": [200, 50, 300], "pa_after": [250, 400, 160]}
+    )
+    assert choose_pitchers(outcomes, n=5, min_pa=150) == [1, 3]
+    assert choose_pitchers(outcomes, n=1, min_pa=150) == [1]
