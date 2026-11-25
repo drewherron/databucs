@@ -13,7 +13,9 @@
    registered in Unity Catalog as <catalog>.<ml schema>.outcome_<name>. With --promote
    if_better it becomes @champion only if its test log loss beats the current champion's
    (same test season); otherwise it gets @challenger. --promote always skips the check, for
-   when the model's inputs changed and the old champion can't stand in for it.
+   when the model's inputs changed and the old champion can't stand in for it; --promote
+   never always registers @challenger, for changes that must pass more checks first (the
+   job's evaluation and backtest with evaluate_alias=challenger, and forward_test).
 
 Run one model per invocation, e.g. --model swing. The train_outcome_models job runs all
 five in parallel.
@@ -31,7 +33,7 @@ from databucs.models.scoring import CHAMPION_ALIAS
 
 HOLDOUT_GAMES_MOD = 10  # games with game_pk % 10 == 0 form the early-stopping holdout
 CHALLENGER_ALIAS = "challenger"
-PROMOTE_CHOICES = ("if_better", "always")
+PROMOTE_CHOICES = ("if_better", "always", "never")
 
 LGB_PARAMS = {
     "learning_rate": 0.05,
@@ -98,6 +100,13 @@ def should_promote(
     """Whether the new version takes @champion, and why (printed by the job)."""
     if promote == "always":
         return True, "--promote always"
+    if promote == "never":
+        if champion_log_loss is None:
+            return False, "--promote never (no current champion)"
+        return False, (
+            f"--promote never; test log loss {new_log_loss:.5f}"
+            f" vs the champion's {champion_log_loss:.5f}"
+        )
     if champion_log_loss is None:
         return True, "no current champion"
     if champion_test_season != new_test_season:

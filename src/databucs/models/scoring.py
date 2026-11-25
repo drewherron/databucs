@@ -51,6 +51,13 @@ def score_outcomes(
     return scored.select(*keys, F.struct(*[m.name for m in MODELS]).alias("p"))
 
 
+def predictions_table(ml: str, alias: str = CHAMPION_ALIAS) -> str:
+    """Where the evaluation writes test-season predictions for the models with `alias`
+    (outcome_test_predictions for @champion, outcome_test_predictions_<alias> otherwise)."""
+    suffix = "" if alias == CHAMPION_ALIAS else f"_{alias}"
+    return f"{ml}.outcome_test_predictions{suffix}"
+
+
 def register_run_values(spark: SparkSession, fact_pitch: str, seasons: list[int], view: str):
     """Temp view `view`: one row per state (STATE_KEY) with a column rv_<result> each."""
     spark.sql(run_values_sql(fact_pitch, seasons)).createOrReplaceTempView(f"{view}_long")

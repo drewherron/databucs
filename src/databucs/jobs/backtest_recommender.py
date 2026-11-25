@@ -1,7 +1,7 @@
 """Backtest the recommender's core claim on the test season: within the same situation,
 pitches the outcome models rate better give up fewer runs (databucs.models.backtest).
 
-Reads <ml schema>.outcome_test_predictions (written by evaluate_expected_run_value) and
+Reads the test predictions written by evaluate_expected_run_value for --model-alias and
 logs the results to the outcome_models MLflow experiment.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 
 from databucs.models import backtest
+from databucs.models.scoring import CHAMPION_ALIAS, predictions_table
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -18,12 +19,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gold-schema", required=True)
     parser.add_argument("--ml-schema", required=True)
     parser.add_argument("--experiment", required=True)
+    parser.add_argument(
+        "--model-alias", default=CHAMPION_ALIAS, help="Whose test predictions to backtest."
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    predictions = f"{args.catalog}.{args.ml_schema}.outcome_test_predictions"
+    predictions = predictions_table(f"{args.catalog}.{args.ml_schema}", args.model_alias)
     fact_pitch = f"`{args.catalog}`.`{args.gold_schema}`.fact_pitch"
 
     import mlflow
@@ -37,9 +41,10 @@ def main(argv: list[str] | None = None) -> None:
     summary = pd.DataFrame(backtest.summarize(folds))
     print(summary.to_string(index=False))
 
-    with mlflow.start_run(run_name="recommender_backtest"):
+    with mlflow.start_run(run_name=f"recommender_backtest_{args.model_alias}"):
         mlflow.log_params(
             {
+                "model_alias": args.model_alias,
                 "predictions_table": predictions,
                 "min_pitches": backtest.MIN_PITCHES,
                 "folds": backtest.FOLDS,

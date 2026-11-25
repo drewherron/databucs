@@ -35,7 +35,8 @@ class OutcomePyfunc(mlflow.pyfunc.PythonModel):
     def predict_proba(self, df: pd.DataFrame):
         import numpy as np
 
-        raw = self._load().predict(features.transform(df))
+        booster = self._load()
+        raw = booster.predict(features.model_inputs(df, booster.feature_name()))
         if raw.ndim == 1:  # binary: LightGBM returns P(class 1)
             raw = np.column_stack([1 - raw, raw])
         return raw

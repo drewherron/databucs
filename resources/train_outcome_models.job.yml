@@ -30,7 +30,9 @@ resources:
         - name: sample_percent
           default: "100"
         - name: promote
-          default: if_better # or "always"
+          default: if_better # "always", or "never" to register a @challenger only
+        - name: evaluate_alias
+          default: champion # "challenger" to evaluate and backtest the challengers
         - name: models
           default: '["swing", "take_outcome", "whiff", "contact_outcome", "in_play_outcome"]'
       tasks:
@@ -70,6 +72,7 @@ resources:
               - --experiment=${resources.experiments.outcome_models.name}
               - --train-seasons={{job.parameters.train_seasons}}
               - --test-season={{job.parameters.test_season}}
+              - --model-alias={{job.parameters.evaluate_alias}}
         # Within the same situation, do pitches rated better give up fewer runs?
         # (src/databucs/models/backtest.py)
         - task_key: backtest_recommender
@@ -85,6 +88,7 @@ resources:
               - --gold-schema=${resources.schemas.gold.name}
               - --ml-schema=${resources.schemas.ml.name}
               - --experiment=${resources.experiments.outcome_models.name}
+              - --model-alias={{job.parameters.evaluate_alias}}
       environments:
         - environment_key: training
           spec:

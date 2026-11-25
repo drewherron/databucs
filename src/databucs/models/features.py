@@ -126,6 +126,7 @@ ARSENAL_FEATURES = [
     "usage_rate",
     *[name for name, _ in pitcher_arsenal.MEASURES],
     *[f"{name}_diff_from_fastball" for name in pitcher_arsenal.FASTBALL_DIFFS],
+    *[name for name, *_ in pitcher_arsenal.RESULTS_OVER_EXPECTED],
 ]
 PITCH_FEATURES = [
     "is_in_zone",
@@ -301,3 +302,9 @@ def transform(df: pd.DataFrame) -> pd.DataFrame:
         out[col] = pd.Categorical(known, categories=levels)
 
     return pd.DataFrame(out, index=df.index)[FEATURES]
+
+
+def model_inputs(df: pd.DataFrame, trained_on: list[str]) -> pd.DataFrame:
+    """transform(df), keeping the columns a model was trained on, by name and in its
+    order. A model trained before a feature was added keeps working after it's added."""
+    return transform(df)[trained_on]

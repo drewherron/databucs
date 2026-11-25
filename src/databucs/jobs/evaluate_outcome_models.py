@@ -22,7 +22,13 @@ from databucs.jobs.train_outcome_model import parse_seasons
 from databucs.models import features
 from databucs.models.outcomes import COMPETITIVE
 from databucs.models.run_values import RESULT_SQL, RESULTS
-from databucs.models.scoring import expected_value_sql, register_run_values, score_outcomes
+from databucs.models.scoring import (
+    CHAMPION_ALIAS,
+    expected_value_sql,
+    predictions_table,
+    register_run_values,
+    score_outcomes,
+)
 
 DECILES = 10
 PITCH_KEY = ["game_pk", "at_bat_number", "pitch_number"]  # to join the predictions back
@@ -36,6 +42,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--experiment", required=True)
     parser.add_argument("--train-seasons", type=parse_seasons, default=[2023, 2024, 2025])
     parser.add_argument("--test-season", type=int, default=2026)
+    parser.add_argument(
+        "--model-alias", default=CHAMPION_ALIAS, help="Registry alias of the models to test."
+    )
     return parser.parse_args(argv)
 
 
@@ -70,7 +79,9 @@ def main(argv: list[str] | None = None) -> None:
         WHERE ({COMPETITIVE}) AND season = {args.test_season}
         """
     )
-    score_outcomes(fe, pitches, ml, PITCH_KEY).createOrReplaceTempView("predictions")
+    score_outcomes(fe, pitches, ml, PITCH_KEY, args.model_alias).createOrReplaceTempView(
+        "predictions"
+    )
 
     # 3. Combine into expected run value, next to what actually happened
     probabilities, expected = expected_value_sql()
@@ -93,14 +104,15 @@ def main(argv: list[str] | None = None) -> None:
         JOIN run_values_wide v USING (balls, strikes, outs, base_state)
         """
     )
-    table = f"{ml}.outcome_test_predictions"
+    table = predictions_table(ml, args.model_alias)
     combined.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(table)
     print(f"Wrote {spark.table(table).count()} rows to {table}")
 
     # 4. Evaluate
-    with mlflow.start_run(run_name="outcome_expected_run_value"):
+    with mlflow.start_run(run_name=f"outcome_expected_run_value_{args.model_alias}"):
         mlflow.log_params(
             {
+                "model_alias": args.model_alias,
                 "train_seasons": ",".join(map(str, args.train_seasons)),
                 "test_season": args.test_season,
                 "predictions_table": table,

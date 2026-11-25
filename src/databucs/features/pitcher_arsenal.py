@@ -16,6 +16,19 @@ is induced vertical break, the rise or drop compared with a spinless pitch.
 The primary fastball is the most-thrown four-seamer, sinker or cutter in the window. Every
 pitch type gets its speed and movement differences from it, which is how hitters
 experience a secondary pitch.
+
+Results over expected. The measures above describe a pitch; three more say how it has
+worked, compared with what the league gets in the same spot, so that where and when a
+pitcher throws it doesn't count as quality:
+- whiff_over_expected: whiffs per swing minus the league's whiff rate per swing for the
+  same pitch group, Statcast zone and count group
+- chase_over_expected: swings per pitch outside the zone, minus the league's swing rate in
+  the same cell (pitches in zones 11-14)
+- xwoba_contact_over_expected: expected wOBA on balls in play, minus the league's for the
+  same cell (negative is good for the pitcher)
+Each is a sum of (actual - expected) over the window divided by the chances plus a prior,
+which shrinks small samples toward 0 (league average). The league's cell rates are over the
+same trailing window, so they only use data from before as_of_date.
 """
 
 from __future__ import annotations
@@ -39,6 +52,22 @@ MEASURES = [
     ("extension", "release_extension"),
     ("arm_angle", "arm_angle"),
 ]
+# Results over expected (see the module docstring): (feature, actual, expected,
+# chances, prior), all per-pitch SQL over the `scored` rows below
+RESULT_COUNT_GROUPS = {
+    "hitter_ahead": "balls > strikes AND strikes < 2",
+    "two_strikes": "strikes = 2",
+    "neutral": "balls <= strikes AND strikes < 2",
+}
+RESULTS_OVER_EXPECTED = [
+    ("whiff_over_expected", "if(is_swing AND is_whiff, 1, 0)",
+     "if(is_swing, lg_whiff_rate, 0)", "if(is_swing, 1, 0)", 30),
+    ("chase_over_expected", "if(NOT is_in_zone AND is_swing, 1, 0)",
+     "if(NOT is_in_zone, lg_swing_rate, 0)", "if(NOT is_in_zone, 1, 0)", 40),
+    ("xwoba_contact_over_expected", "if(has_contact_xwoba, expected_woba, 0)",
+     "if(has_contact_xwoba, lg_xwoba_contact, 0)", "if(has_contact_xwoba, 1, 0)", 25),
+]  # fmt: skip
+
 FASTBALL_TYPES = ("FF", "SI", "FC")
 FASTBALL_DIFFS = ("velocity", "horizontal_break", "induced_vertical_break")
 
@@ -46,30 +75,88 @@ FASTBALL_DIFFS = ("velocity", "horizontal_break", "induced_vertical_break")
 def build_sql(source: Source) -> str:
     """SQL for the arsenal rows for game days in [source.start, source.end]."""
     day_sums = ",\n    ".join(
-        f"sum({expr}) AS {name}_sum,\n    count({expr}) AS {name}_n" for name, expr in MEASURES
+        [f"sum({expr}) AS {name}_sum,\n    count({expr}) AS {name}_n" for name, expr in MEASURES]
+        + [
+            f"sum({actual} - {expected}) AS {name}_sum,\n    sum({chances}) AS {name}_n"
+            for name, actual, expected, chances, _ in RESULTS_OVER_EXPECTED
+        ]
     )
+    summed = [name for name, _ in MEASURES] + [name for name, *_ in RESULTS_OVER_EXPECTED]
     grid_values = ",\n    ".join(
         f"coalesce(d.{name}_sum, 0) AS {name}_sum,\n    coalesce(d.{name}_n, 0) AS {name}_n"
-        for name, _ in MEASURES
+        for name in summed
     )
     window = trailing_window("g.pitcher_id, g.pitch_type")
     window_sums = ",\n    ".join(
         f"sum(g.{name}_sum) OVER {window} AS {name}_sum,\n"
         f"    sum(g.{name}_n) OVER {window} AS {name}_n"
-        for name, _ in MEASURES
+        for name in summed
     )
-    averages = ",\n    ".join(f"try_divide({name}_sum, {name}_n) AS {name}" for name, _ in MEASURES)
+    averages = ",\n    ".join(
+        [f"try_divide({name}_sum, {name}_n) AS {name}" for name, _ in MEASURES]
+        + [
+            f"{name}_sum / ({name}_n + {prior}) AS {name}"
+            for name, _, _, _, prior in RESULTS_OVER_EXPECTED
+        ]
+    )
+    count_group = (
+        "CASE "
+        + " ".join(
+            f"WHEN {condition} THEN '{group}'" for group, condition in RESULT_COUNT_GROUPS.items()
+        )
+        + " END"
+    )
+    league_window = trailing_window("pitch_group, zone, count_group")
     fastball_types = ", ".join(f"'{t}'" for t in FASTBALL_TYPES)
     diffs = ",\n  ".join(
         f"a.{name} - fb.{name} AS {name}_diff_from_fastball" for name in FASTBALL_DIFFS
     )
-    measures = ",\n  ".join(f"a.{name}" for name, _ in MEASURES)
+    measures = ",\n  ".join(
+        [f"a.{name}" for name, _ in MEASURES] + [f"a.{name}" for name, *_ in RESULTS_OVER_EXPECTED]
+    )
     return f"""
-WITH pitches AS (
-  SELECT *
+WITH all_pitches AS (
+  SELECT *,
+    {count_group} AS count_group,
+    is_in_play AND expected_woba IS NOT NULL AS has_contact_xwoba
   FROM {source.fact_pitch}
   WHERE pitch_type IS NOT NULL
     AND {date_filter("game_date", source.history_start(), source.end)}
+),
+-- The league in each cell (pitch group x zone x count group), per day, then over the
+-- trailing window ending that day
+league_days AS (
+  SELECT pitch_group, zone, count_group, game_date,
+    count(*) AS pitches,
+    sum(if(is_swing, 1, 0)) AS swings,
+    sum(if(is_swing AND is_whiff, 1, 0)) AS whiffs,
+    sum(if(has_contact_xwoba, 1, 0)) AS contacts,
+    sum(if(has_contact_xwoba, expected_woba, 0)) AS contact_xwoba
+  FROM all_pitches
+  WHERE pitch_group IS NOT NULL AND zone IS NOT NULL
+  GROUP BY ALL
+),
+league AS (
+  SELECT pitch_group, zone, count_group, game_date,
+    try_divide(sum(swings) OVER {league_window}, sum(pitches) OVER {league_window})
+      AS lg_swing_rate,
+    try_divide(sum(whiffs) OVER {league_window}, sum(swings) OVER {league_window})
+      AS lg_whiff_rate,
+    try_divide(sum(contact_xwoba) OVER {league_window}, sum(contacts) OVER {league_window})
+      AS lg_xwoba_contact
+  FROM league_days
+),
+-- Pitches outside a cell with league data (no pitch group or zone) add no chances
+pitches AS (
+  SELECT p.* EXCEPT (is_swing, is_whiff, is_in_zone, has_contact_xwoba),
+    coalesce(p.is_swing AND lg.lg_whiff_rate IS NOT NULL, FALSE) AS is_swing,
+    coalesce(p.is_whiff, FALSE) AS is_whiff,
+    coalesce(p.is_in_zone OR lg.lg_swing_rate IS NULL, TRUE) AS is_in_zone,
+    coalesce(p.has_contact_xwoba AND lg.lg_xwoba_contact IS NOT NULL, FALSE)
+      AS has_contact_xwoba,
+    lg.lg_swing_rate, lg.lg_whiff_rate, lg.lg_xwoba_contact
+  FROM all_pitches p
+  LEFT JOIN league lg USING (pitch_group, zone, count_group, game_date)
 ),
 pitch_days AS (
   SELECT

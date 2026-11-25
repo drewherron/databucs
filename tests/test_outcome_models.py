@@ -149,6 +149,8 @@ def test_should_promote():
     assert should_promote("if_better", 0.4, 2026, 0.5, 2026)[0]
     assert not should_promote("if_better", 0.5, 2026, 0.4, 2026)[0]
     assert not should_promote("if_better", 0.4, 2026, 0.5, 2025)[0]  # different test season
+    assert not should_promote("never", 0.4, 2026, 0.5, 2026)[0]
+    assert not should_promote("never", 0.4, 2026, None, None)[0]
 
 
 def test_feature_lookups_never_return_model_label_or_key_columns():
@@ -321,3 +323,21 @@ def test_result_probabilities_in_python_match_the_sql_paths():
     assert list(probs) == RESULTS
     assert sum(probs.values()) == pytest.approx(1.0)
     assert probs["foul"] == pytest.approx(0.45 * 0.75 * 0.5)
+
+
+def test_a_model_ignores_features_added_after_it_was_trained(monkeypatch):
+    import lightgbm as lgb
+    import numpy as np
+    import pandas as pd
+
+    from databucs.models import features
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
+    y = (X["a"] > 0).astype(int)
+    booster = lgb.train({"objective": "binary", "verbose": -1}, lgb.Dataset(X, y), 5)
+    # The transform now also returns a newer feature, first
+    monkeypatch.setattr(features, "transform", lambda df: df.assign(new=1.0)[["new", "a", "b"]])
+    inputs = features.model_inputs(X, booster.feature_name())
+    assert list(inputs.columns) == ["a", "b"]
+    assert np.allclose(booster.predict(inputs), booster.predict(X))

@@ -4,6 +4,7 @@
 # The ingest job runs this after each load, for the same window. Run it on its own to
 # rebuild after changing a feature definition:
 #   databricks bundle run features --params full_rebuild=true
+#   databricks bundle run features --params full_rebuild=true,tables=pitcher_arsenal_features
 resources:
   jobs:
     features:
@@ -22,6 +23,8 @@ resources:
           default: ""
         - name: full_rebuild
           default: "false"
+        - name: tables
+          default: "" # comma-separated feature tables to build; default: all
       tasks:
         - task_key: build_features
           environment_key: features
@@ -36,6 +39,7 @@ resources:
               - --start-date={{job.parameters.start_date}}
               - --end-date={{job.parameters.end_date}}
               - --full-rebuild={{job.parameters.full_rebuild}}
+              - --tables={{job.parameters.tables}}
         - task_key: check_features
           depends_on:
             - task_key: build_features
