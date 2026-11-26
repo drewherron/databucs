@@ -134,6 +134,7 @@ def main(argv: list[str] | None = None) -> None:
         f"""
         SELECT DISTINCT team_id, opponent_id, series_start, opponent_name, target_mode,
           lineup_source, miss_sd_ft, pitcher_id, pitcher_name, is_probable_starter,
+          pitcher_limited_data,
           batter_id, batter_name, lineup_spot, pitcher_throws, batter_stands
         FROM {options_table}
         WHERE {series}

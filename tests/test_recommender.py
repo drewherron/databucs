@@ -105,6 +105,15 @@ def test_scenarios_cover_every_count_where_the_simulator_starts():
     assert counts == {(b, s) for b in range(4) for s in range(3)}
 
 
+def test_arsenal_keeps_established_pitches_and_counts_all_of_them():
+    target = inputs.Target(PIT, DET, dt.date(2026, 9, 25), "demo")
+    sql = inputs.arsenal_sql("m.arsenal", "g.fact_pitch", target)
+    assert f"a.pitches_thrown >= {inputs.ESTABLISHED_PITCHES}" in sql
+    assert f"a.usage_rate >= {inputs.ESTABLISHED_USAGE_RATE}" in sql
+    # The total is taken before the filter, in the CTE
+    assert sql.index("pitcher_total_pitches") < sql.index("WHERE a.pitches_thrown")
+
+
 def test_count_group_sql_names_every_group():
     sql = inputs.count_group_sql("o.balls", "o.strikes")
     assert "o.balls > o.strikes" in sql and "o.strikes = 2" in sql

@@ -58,6 +58,7 @@ OUTPUT_COLUMNS = [
     "p_home_run",
     "p_hit_by_pitch",
     "pitcher_name",
+    "pitcher_limited_data",
     "batter_name",
     "batter_stands",
     "as_of_date",

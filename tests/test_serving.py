@@ -42,7 +42,7 @@ def snapshot(usage_zone_value=9) -> Snapshot:
         pitcher_id=PITCHER, pitch_type="FF", pitch_group="fastball", pitch_name="4-Seam Fastball",
         velocity=95.0, spin_rate=2300.0, horizontal_break=8.0, induced_vertical_break=16.0,
         release_side=2.0, release_height=6.0, extension=6.5, arm_angle=40.0,
-        usage_rate=0.5, pitches_thrown=900,
+        usage_rate=0.5, pitches_thrown=900, pitcher_total_pitches=300,
     )  # fmt: skip
     profile = {name: 0.3 for name in [*features.BATTER_FEATURES, *features.BATTER_CELL_COUNTS]}
     land = options.landing_points()[0].land  # far outside: a ball
@@ -102,6 +102,7 @@ def test_recommend_scores_every_zone_and_ranks_them():
     assert len(out) == len(options.ZONES)  # one pitch type
     assert out["option_rank"].min() == 1 and out["option_rank"].is_monotonic_increasing
     assert out["batter_stands"].iloc[0] == "L"  # listed side, no observed side
+    assert out["pitcher_limited_data"].iloc[0]  # 300 pitches
     probs = out[[f"p_{r}" for r in RESULTS]].sum(axis=1)
     assert probs.to_numpy() == pytest.approx(1.0)
     # Strikes are good for the pitcher here, so the middle beats a chase pitch

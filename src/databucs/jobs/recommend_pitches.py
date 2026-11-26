@@ -230,7 +230,8 @@ def main(argv: list[str] | None = None) -> None:
     spark.sql(
         """
         SELECT DISTINCT r.pitcher_id, r.batter_id, r.scenario, r.pitch_type, r.pitch_name,
-          r.pitcher_name, r.is_probable_starter, r.batter_name, r.lineup_spot,
+          r.pitcher_name, r.is_probable_starter, r.pitcher_limited_data,
+          r.batter_name, r.lineup_spot,
           r.pitcher_throws, r.batter_stands, r.balls, r.strikes, r.pitch_usage_rate,
           r.pitcher_pitches_thrown, s.scenario_label, s.scenario_order
         FROM requests r

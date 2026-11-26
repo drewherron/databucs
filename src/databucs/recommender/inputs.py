@@ -18,9 +18,18 @@ from databucs.recommender import options
 
 PIRATES_TEAM_ID = 134
 
-# Arsenal: pitch types a pitcher actually uses (trailing 365 days, from the arsenal table)
-MIN_USAGE_RATE = 0.03
+# Arsenal: pitch types a pitcher actually uses (trailing 365 days, from the arsenal table).
+# A pitch type is an option if he has thrown it at least ESTABLISHED_PITCHES times, or
+# (for a pitcher without much data) if it's at least ESTABLISHED_USAGE_RATE of his mix
+# and thrown MIN_PITCHES_THROWN times. A rarely thrown pitch is usually rare for a reason
+# (his worst pitch, still in development), so its measurements say little about how it
+# would work if he threw it more.
 MIN_PITCHES_THROWN = 25
+ESTABLISHED_PITCHES = 100
+ESTABLISHED_USAGE_RATE = 0.10
+# Pitchers with fewer pitches than this in the window are flagged as limited data: their
+# usual mix and command are uncertain
+LIMITED_DATA_PITCHES = 500
 # Projected lineup: batters who started at least MIN_STARTS of the opponent's last
 # RECENT_GAMES games
 RECENT_GAMES = 10
@@ -260,24 +269,31 @@ LEFT JOIN (
 
 
 def arsenal_sql(arsenal_table: str, fact_pitch: str, target: Target) -> str:
-    """Each pitcher's latest arsenal row per pitch type, limited to pitches he actually uses,
-    with the pitch's group and name."""
+    """Each pitcher's latest arsenal row per pitch type, limited to established pitches (see
+    ESTABLISHED_PITCHES), with the pitch's group and name and his total pitches."""
     return f"""
+WITH latest AS (
+  SELECT a.*,
+    -- every pitch in his window, including pitch types that aren't options
+    sum(a.pitches_thrown) OVER (PARTITION BY a.pitcher_id) AS pitcher_total_pitches
+  FROM {arsenal_table} a
+  JOIN (
+    SELECT pitcher_id, max(as_of_date) AS as_of_date
+    FROM {arsenal_table}
+    WHERE as_of_date <= DATE'{target.series_start}'
+    GROUP BY pitcher_id
+  ) l USING (pitcher_id, as_of_date)
+)
 SELECT a.*, g.pitch_group, g.pitch_name
-FROM {arsenal_table} a
-JOIN (
-  SELECT pitcher_id, max(as_of_date) AS as_of_date
-  FROM {arsenal_table}
-  WHERE as_of_date <= DATE'{target.series_start}'
-  GROUP BY pitcher_id
-) latest USING (pitcher_id, as_of_date)
+FROM latest a
 JOIN (
   SELECT pitch_type, mode(pitch_group) AS pitch_group, mode(pitch_name) AS pitch_name
   FROM {fact_pitch}
   WHERE pitch_type IS NOT NULL
   GROUP BY pitch_type
 ) g ON g.pitch_type = a.pitch_type
-WHERE a.usage_rate >= {MIN_USAGE_RATE} AND a.pitches_thrown >= {MIN_PITCHES_THROWN}
+WHERE a.pitches_thrown >= {MIN_PITCHES_THROWN}
+  AND (a.pitches_thrown >= {ESTABLISHED_PITCHES} OR a.usage_rate >= {ESTABLISHED_USAGE_RATE})
 """
 
 
@@ -315,6 +331,7 @@ SELECT
   m.batter_id, m.batter_name, m.lineup_spot,
   s.scenario, z.land,
   a.pitches_thrown AS pitcher_pitches_thrown, a.usage_rate AS pitch_usage_rate,
+  a.pitcher_total_pitches < {LIMITED_DATA_PITCHES} AS pitcher_limited_data,
   a.pitch_name,
   DATE'{target.series_start}' AS game_date,
   {pitch},

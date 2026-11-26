@@ -25,7 +25,7 @@ import pandas as pd
 
 from databucs.models import features
 from databucs.models.run_values import RESULTS, result_probabilities
-from databucs.recommender import options
+from databucs.recommender import inputs, options
 
 # The hypothetical pitch's columns that come straight from the arsenal row (see
 # inputs.HYPOTHETICAL_PITCH; the rest depend on the matchup and the landing point)
@@ -224,5 +224,9 @@ def recommend(
     result.insert(0, "pitcher_name", pitcher["pitcher_name"])
     result.insert(1, "batter_name", batter["batter_name"])
     result.insert(2, "batter_stands", stands)
+    total = arsenal["pitcher_total_pitches"].iloc[0] if "pitcher_total_pitches" in arsenal else None
+    result["pitcher_limited_data"] = (
+        bool(total < inputs.LIMITED_DATA_PITCHES) if total is not None else None
+    )
     result["as_of_date"] = snapshot.as_of_date
     return result
