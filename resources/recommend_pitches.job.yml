@@ -33,6 +33,12 @@ resources:
           default: "" # comma-separated pitcher ids; default: recent staff + probables
         - name: max_days_ahead
           default: "10"
+        - name: model_alias
+          default: champion # e.g. challenger, to compare before promoting
+        - name: options_table
+          default: pitch_option_scores # change both tables with model_alias, so the
+        - name: simulations_table #     dashboard's tables keep the champion's numbers
+          default: matchup_simulations
       tasks:
         - task_key: recommend_pitches
           environment_key: scoring
@@ -50,6 +56,8 @@ resources:
               - --lineup={{job.parameters.lineup}}
               - --pitchers={{job.parameters.pitchers}}
               - --max-days-ahead={{job.parameters.max_days_ahead}}
+              - --model-alias={{job.parameters.model_alias}}
+              - --table={{job.parameters.options_table}}
         - task_key: simulate_matchups
           depends_on:
             - task_key: recommend_pitches
@@ -62,6 +70,8 @@ resources:
               - --catalog=${var.catalog}
               - --gold-schema=${resources.schemas.gold.name}
               - --ml-schema=${resources.schemas.ml.name}
+              - --options-table={{job.parameters.options_table}}
+              - --table={{job.parameters.simulations_table}}
       environments:
         - environment_key: scoring
           spec:
