@@ -134,6 +134,23 @@ Baseline, the current @champion models (60 pitchers):
 - **What a change has to do to count as an improvement:** raise the K% correlation and
   spread without hurting BB%, the test-season accuracy or the within-situation backtest.
 
+**Promoted: results-over-expected features.** Models that also see each pitch's whiff,
+chase and contact results compared with the league (before the date) passed that bar:
+
+| | Before | After | Naive |
+|---|---|---|---|
+| K% correlation | 0.61 | 0.70 | 0.71 |
+| K% spread (true 5.3) | 3.4 | 3.7 | |
+| BB% correlation | 0.45 | 0.43 | 0.44 |
+
+Test log loss improved slightly and the backtest was unchanged. On the Detroit demo the
+top option stayed the same in 57% of situations, and the shifts that remained follow real
+results on established pitches: Montgomery throws more four-seamers (8.7 points more
+whiffs than expected), Weaver more changeups. The one odd shift, a rookie's 25-pitch
+slider becoming his top option, led to the established-pitch rule in
+[recommender.md](recommender.md#options-and-scenarios). Skenes moved from fifth to third
+in the rankings. The Detroit table above is from the earlier models.
+
 ## Dashboard
 
 The Series prep dashboard's **Matchup rankings** page shows these numbers: pitchers ranked

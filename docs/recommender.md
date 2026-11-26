@@ -32,8 +32,16 @@ databricks bundle run recommend_pitches --params opponent_id=116,series_start=20
 ## Options and scenarios
 
 - **Pitch types:** from the pitcher's latest `pitcher_arsenal_features` row, limited to
-  pitches with at least 3% usage and 25 pitches. The hypothetical pitch has his real
-  average velocity, spin, movement, release and extension for that pitch type.
+  established pitches: at least 100 thrown in the trailing 365 days, or at least 10% of
+  his mix (and 25 thrown), so a call-up still has his main pitches. A pitch thrown a few
+  dozen times has unreliable results features, and a plan shouldn't lean on it (a 25-pitch
+  slider became a rookie's top option in 96 of 196 situations before this rule). The
+  hypothetical pitch has his real average velocity, spin, movement, release and extension
+  for that pitch type.
+- **Limited data:** a pitcher with fewer than 500 pitches in the window gets
+  `pitcher_limited_data = true`, and the dashboard adds "(limited data)" to his name. His
+  pitches' measurements settle quickly and his results are shrunk toward the league, so
+  his options are usable, but read with more caution.
 - **Zones:** Statcast zones 1–9 (the strike zone in thirds) and 11–14 (outside, by
   quadrant), scaled to the batter's own strike zone.
 - **Scenarios** (`recommender/options.py`):

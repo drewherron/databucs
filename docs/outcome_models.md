@@ -119,6 +119,14 @@ ECE (expected calibration error) is the row-weighted gap between predicted and o
 rates across 20 equal-size bins. The models are well calibrated without a separate
 calibration step.
 
+These are the first champions. The current champions add the pitcher's results-over-expected
+features (see [features.md](features.md#pitcher_arsenal_features)). Test log loss moved
+slightly: swing 0.4299 → 0.4296, take_outcome 0.1318 → 0.1314, whiff 0.4426 → 0.4415,
+contact_outcome unchanged, in_play_outcome 0.9046 → 0.9045. Those are near the run-to-run
+noise, so the promotion rested on the simulator's forward-in-time test, where K%
+correlation rose from 0.61 to 0.70 (see [simulator.md](simulator.md#forward-in-time-test)).
+The previous versions keep the `@previous` alias.
+
 What the numbers say:
 - **Take outcome:** location nearly decides ball versus called strike, so this model is
   very strong.

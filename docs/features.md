@@ -87,6 +87,18 @@ Per pitch type, averaged over the window:
 
 Horizontal values are flipped for right-handers, so positive always means arm side.
 
+**Results over expected:** how the pitch has done compared with the league, in the same
+situations:
+- `whiff_over_expected` (per swing), `chase_over_expected` (swings per pitch outside the
+  zone) and `xwoba_contact_over_expected` (per ball in play)
+- the expected rate is the league's over the same trailing window, for the same pitch
+  group × zone × count group, so a pitcher isn't credited for where or when he throws it
+- shrunk toward 0 with priors of 30 swings, 40 out-of-zone pitches and 25 balls in play
+
+These describe what measurements miss (deception, tunneling, command within a zone). They
+only use pitches before the row's date, so the forward-in-time test in
+[simulator.md](simulator.md#forward-in-time-test) can't be passed by leaking later results.
+
 On each day a pitcher pitched, there's a row for every pitch type they threw in the window,
 not just that day, so usage stays current for pitches they skipped.
 

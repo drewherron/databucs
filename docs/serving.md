@@ -50,7 +50,9 @@ Input: one row per question. Output: one row per option, ranked within each requ
 Params: `top_n` (default 10, 0 for all) and `miss_sd_ft` (default 0.65).
 
 The output columns match `pitch_option_scores`: rank, tier, pitch, location, expected run
-value and range, `vs_usual`, his share, the result probabilities, and the snapshot date.
+value and range, `vs_usual`, his share, the result probabilities, `pitcher_limited_data` (under 500 pitches in the
+window) and the snapshot date. Only established pitches are offered, as in the batch
+report (see [recommender.md](recommender.md#options-and-scenarios)).
 An unknown player or invalid situation returns one row with `error` set, and the other
 questions in the request are still answered.
 

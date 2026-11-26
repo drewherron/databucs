@@ -259,6 +259,13 @@ Free Edition serverless compute.
   Late-and-close needs win expectancy, which isn't built yet.
 - **Thin samples.** Shrinkage handles a batter with little data by pulling him toward the
   league, not toward similar hitters. Rookies and new pitch types get generic advice.
+  - A pitcher with little data (under 500 pitches) is flagged "limited data" rather than
+    hidden: his pitch measurements settle within a few dozen pitches, and his results
+    features are shrunk toward the league.
+  - A rarely thrown pitch is a limit no model fixes: its results are mostly luck, and
+    pitchers may avoid it for reasons the data can't see. Only established pitches (100
+    thrown, or 10% of a newer pitcher's mix) are recommended, so a pitch he's still
+    developing never shows up.
 - **Judgment calls.** Shrinkage priors, tier thresholds, the miss size and the scenario
   defaults are reasoned choices, not fitted. They're documented where they live.
 - **Freshness.** The endpoint answers from a dated snapshot until the job reruns. Prod
